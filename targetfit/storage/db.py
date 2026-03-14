@@ -3,8 +3,8 @@ from typing import Any, Dict, List
 
 import duckdb
 
-from llm import get_embedding
-from utils import setup_logger
+from targetfit.log import setup_logger
+from targetfit.nlp.llm import get_embedding
 
 
 logger = setup_logger(__name__)
@@ -17,6 +17,7 @@ def get_connection(config: Dict[str, Any]) -> duckdb.DuckDBPyConnection:
     conn = duckdb.connect(db_path)
     try:
         conn.execute("LOAD vss;")
+        conn.execute("SET hnsw_enable_experimental_persistence = true;")
     except duckdb.Error as exc:
         logger.warning("Failed to load vss extension: %s", exc)
     return conn
@@ -55,9 +56,9 @@ def init_schema(conn: duckdb.DuckDBPyConnection, config: Dict[str, Any]) -> None
         """
         CREATE TABLE IF NOT EXISTS cv (
             id          VARCHAR PRIMARY KEY,
-            embedding   FLOAT[768]
+            embedding   FLOAT[%d]
         );
-        """
+        """ % dims
     )
 
     # HNSW index (ignore if it already exists)
@@ -78,6 +79,18 @@ def job_id(job: Dict[str, Any]) -> str:
     key = f"{job.get('company','')}|{job.get('title','')}|{job.get('url','')}"
     digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
     return digest[:16]
+
+
+def embedding_text_for_job(job: Dict[str, Any]) -> str:
+    """Build stable text for job embeddings even when description is missing."""
+    parts = [
+        job.get("title") or "",
+        job.get("company") or "",
+        job.get("location") or "",
+        job.get("description") or "",
+    ]
+    text = "\n".join(part.strip() for part in parts if str(part).strip())
+    return text.strip()
 
 
 def upsert_job(
@@ -121,8 +134,8 @@ def upsert_jobs(jobs: List[Dict[str, Any]], config: Dict[str, Any]) -> None:
     logger.info("Upserting %d jobs into database", len(jobs))
     with conn:
         for job in jobs:
-            desc = job.get("description") or ""
-            embedding = get_embedding(desc, config=config)
+            text = embedding_text_for_job(job)
+            embedding = get_embedding(text, config=config)
             upsert_job(conn, job, embedding)
 
     logger.info("Inserted/updated %d jobs into %s", len(jobs), config.get("db_path"))
@@ -152,13 +165,14 @@ def query_similar_jobs(cv_text: str, config: Dict[str, Any]) -> List[Dict[str, A
         return []
 
     top_k = int(config.get("top_k", 10))
+    dims = int(config.get("embedding_dims", 768))
     conn = get_connection(config)
     init_schema(conn, config)
 
     logger.info("Querying top %d similar jobs", top_k)
     cv_embedding = get_embedding(cv_text, config=config)
 
-    query = """
+    query = f"""
         SELECT
             j.id,
             j.company,
@@ -167,7 +181,7 @@ def query_similar_jobs(cv_text: str, config: Dict[str, Any]) -> List[Dict[str, A
             j.url,
             j.description,
             j.date_posted,
-            array_cosine_similarity(e.embedding, ?::FLOAT[768]) AS vector_score
+            array_cosine_similarity(e.embedding, ?::FLOAT[{dims}]) AS vector_score
         FROM embeddings e
         JOIN jobs j ON e.job_id = j.id
         ORDER BY vector_score DESC

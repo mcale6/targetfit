@@ -1,12 +1,13 @@
 extraction_model: gpt-oss:20b
 scoring_model: gpt-oss:20b
-fallback_model: llama3.2:3b
+fallback_model: gemma3:27b
 ollama_url: http://localhost:11434
 embedding_model: snowflake-arctic-embed2
-embedding_dims: 768  # Verify dims if you switch to Arctic!
+embedding_dims: 1024  # Updated to match snowflake-arctic-embed2 output dims
 db_path: data/targetfit.duckdb
 score_threshold: 0.65
-top_k: 10
+top_k: 20
 max_description_chars: 4000
 headless: true
 llm_max_tokens: 8192
+location: Switzerland

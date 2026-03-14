@@ -5,8 +5,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from llm import score_job
-from utils import setup_logger
+from targetfit.log import setup_logger
+from targetfit.nlp.llm import score_job
 
 
 logger = setup_logger(__name__)

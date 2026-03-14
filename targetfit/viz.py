@@ -22,9 +22,10 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-import db
-import scoring
-from utils import load_config, load_cv
+from targetfit import scoring
+from targetfit.config import load_config
+from targetfit.storage import db
+from targetfit.storage.io import load_cv
 
 
 console = Console()

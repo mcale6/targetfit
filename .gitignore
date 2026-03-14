@@ -17,3 +17,14 @@ data/cv.txt
 
 # Python virtual environment
 .venv/
+
+# Byte-compiled / cache
+__pycache__/
+
+# Packaging
+*.egg-info/
+dist/
+build/
+
+# Claude worktrees
+.claude/
