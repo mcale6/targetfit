@@ -1,0 +1,9 @@
+click
+requests
+duckdb
+ollama
+pyyaml
+numpy
+rich
+scrapegraphai
+playwright

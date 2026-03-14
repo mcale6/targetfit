@@ -1,0 +1,19 @@
+# Ignore data artifacts but keep code and configs
+
+# DuckDB database
+data/*.duckdb
+
+# Scraped / derived data
+data/jobs.json
+data/jobs/
+
+# Local CVs (personal data)
+data/cv.txt
+
+# Misc editor / OS files
+.DS_Store
+*.swp
+*.swo
+
+# Python virtual environment
+.venv/
