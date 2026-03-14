@@ -1,0 +1,6 @@
+company,url,search_url
+Google,https://careers.google.com/jobs/,https://careers.google.com/jobs/results/?q={query}&location={location}
+Roche,https://careers.roche.com/global/en/c/research-development-jobs,https://careers.roche.com/global/en/search-results?keywords={query}&location={location}
+Lila Sciences,https://job-boards.greenhouse.io/lilasciences,
+CuspAI,https://jobs.ashbyhq.com/cuspai,
+Novartis,https://www.novartis.com/careers,https://www.novartis.com/careers/career-search?q={query}&location={location}

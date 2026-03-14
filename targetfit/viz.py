@@ -68,7 +68,7 @@ def _histogram(scores: list[float], width: int = 40) -> str:
     """Return a simple ASCII histogram for a list of scores."""
     if not scores:
         return "(no data)"
-    buckets = 8
+    buckets = 10
     lo, hi = 0.0, 1.0
     step = (hi - lo) / buckets
     counts = [0] * buckets
@@ -82,11 +82,9 @@ def _histogram(scores: list[float], width: int = 40) -> str:
         line = ""
         for c in counts:
             filled = math.ceil(c / max_count * bar_height)
-            line += "█ " if filled >= row else "  "
+            line += " █  " if filled >= row else "    "
         lines.append(line)
-    axis = "".join(
-        f"{lo + i * step:.1f} " for i in range(buckets)
-    )
+    axis = "".join(f"{lo + i * step:.1f} " for i in range(buckets))
     lines.append(axis)
     return "\n".join(lines)
 

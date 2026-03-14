@@ -7,8 +7,9 @@ data/*.duckdb
 data/jobs.json
 data/jobs/
 
-# Local CVs (personal data)
+# Local CVs and company list (personal data)
 data/cv.txt
+data/companies.csv
 
 # Misc editor / OS files
 .DS_Store

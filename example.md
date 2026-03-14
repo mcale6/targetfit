@@ -36,7 +36,7 @@ $ targetfit viz --top 10 --threshold 0.3
 │   Date       2026-03-14                                                      │
 │   Matches    10 jobs  across  3 companies                                    │
 │   Best score 0.49   avg 0.45                                                 │
-│   CV         ALESSIO D'ADDIO                                                 │
+│   CV         (your CV)                                                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─────┬────────────────────┬──────────────────────────┬────────────────┬────────
 │   # │ Company            │ Role                     │ Location       │ Score
@@ -49,25 +49,23 @@ $ targetfit viz --top 10 --threshold 0.3
 │     │                    │ Scientific ML for Drug   │                │
 │     │                    │ Discovery                │                │
 │   3 │ Roche              │ Laborinformatik- und CSV │ Basel,         │ ██████░
-│     │                    │ Spezialist in Pharma     │ Basel-City,    │   0.47
-│     │                    │ Technical Development    │ Switzerland    │
+│     │                    │ Spezialist in Pharma     │ Switzerland    │   0.47
+│     │                    │ Technical Development    │                │
 │   4 │ Roche              │ Senior/Principal AI      │ Shanghai,      │ ██████░
-│     │                    │ Scientist for Large      │ Shanghai,      │   0.47
-│     │                    │ Molecule - AIDD          │ China          │
+│     │                    │ Scientist for Large      │ China          │   0.47
+│     │                    │ Molecule - AIDD          │                │
 │   5 │ Lila Sciences      │ Director, AI for Protein │ San Francisco, │ ██████░
 │     │                    │ Engineering              │ CA USA         │   0.46
 │   6 │ Lila Sciences      │ Senior Research          │ Cambridge, MA  │ █████░░
 │     │                    │ Associate, Protein       │ USA            │   0.44
 │     │                    │ Science Developability   │                │
 │   7 │ Roche              │ Section Lead Process     │ Basel,         │ █████░░
-│     │                    │ Science and Data Flow    │ Basel-City,    │   0.44
-│     │                    │                          │ Switzerland    │
+│     │                    │ Science and Data Flow    │ Switzerland    │   0.44
 │   8 │ Roche              │ Machine Learning         │ Basel,         │ █████░░
-│     │                    │ Scientist                │ Basel-City,    │   0.44
-│     │                    │                          │ Switzerland    │
+│     │                    │ Scientist                │ Switzerland    │   0.44
 │   9 │ Roche              │ Senior Science and       │ Penzberg,      │ █████░░
-│     │                    │ People Lead in           │ Bavaria,       │   0.43
-│     │                    │ Bioconjugation and       │ Germany        │
+│     │                    │ People Lead in           │ Germany        │   0.43
+│     │                    │ Bioconjugation and       │                │
 │     │                    │ Protein Engineering      │                │
 │  10 │ Novartis           │ Data Analytics &         │ Bogota         │ █████░░
 │     │                    │ Platforms Associate      │                │   0.43
@@ -82,13 +80,13 @@ $ targetfit viz --top 10 --threshold 0.3
   Novartis                   1   ████░░░░░░  0.43
 
 ╭───────────────────────── Score distribution ──────────────────────────────╮
-│       █                                                                   │
-│       █                                                                   │
-│       █                                                                   │
-│       █                                                                   │
-│       █                                                                   │
-│ 0.0 0.1 0.2 0.4 0.5 0.6 0.8 0.9                                          │
-╰───────────────────────────────────────────────────────────────────────────╯
+│                  █                                                        │
+│                  █                                                        │
+│                  █                                                        │
+│                  █                                                        │
+│                  █                                                        │
+│ 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9                                 │
+╰──────────────────────────────────────────────────────────────────────────╯
 ```
 
 #### 4. LLM-scored match with detail
@@ -102,7 +100,7 @@ $ targetfit viz --llm-score --top 10 --threshold 0.3
 │   Date       2026-03-14                                                      │
 │   Matches    9 jobs  across  3 companies                                     │
 │   Best score 0.72   avg 0.58                                                 │
-│   CV         ALESSIO D'ADDIO                                                 │
+│   CV         (your CV)                                                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─────┬────────────────────┬──────────────────────────┬────────────────┬────────
 │   # │ Company            │ Role                     │ Location       │ Score
@@ -110,23 +108,19 @@ $ targetfit viz --llm-score --top 10 --threshold 0.3
 │   1 │ Roche              │ Machine Learning         │ Basel,         │ ████████
 │     │                    │ Scientist                │ Switzerland    │   0.72
 │     │                    │                          │                │
-│     │                    │   This is an exceptional match; the       │
-│     │                    │   candidate possesses a rare combination  │
-│     │                    │   of computational biology expertise,     │
-│     │                    │   machine learning proficiency, and       │
-│     │                    │   practical software engineering skills.  │
+│     │                    │   Exceptional match; rare combination of  │
+│     │                    │   computational biology expertise, ML     │
+│     │                    │   proficiency, and software engineering.  │
 │     │                    │   ✓ Deep expertise in protein design      │
 │     │                    │     (AlphaFold, ProteinMPNN, RFdiffusion) │
 │     │                    │   ✓ Molecular dynamics, structural        │
 │     │                    │     bioinformatics, and omics integration │
-│     │                    │   ✓ Prior internship at Roche; builds     │
-│     │                    │     end-to-end systems (pipelines, apps)  │
+│     │                    │   ✓ Builds end-to-end systems             │
+│     │                    │     (pipelines, web apps)                 │
 │     │                    │   ✓ Strong Python, JAX, SQL, and cloud    │
 │     │                    │     computing experience                  │
 │     │                    │   ✗ No explicit large-scale pharma        │
 │     │                    │     dataset experience                    │
-│     │                    │   ✗ Prior food-delivery industry role     │
-│     │                    │     may need adaptation to drug discovery │
 │     │                    │   ✗ No clinical trial data or regulatory  │
 │     │                    │     experience mentioned                  │
 │     │                    │                          │                │
@@ -137,10 +131,9 @@ $ targetfit viz --llm-score --top 10 --threshold 0.3
 │     │                    │ Discovery                │                │
 │     │                    │                          │                │
 │     │                    │   Highly skilled computational biologist  │
-│     │                    │   with strong technical foundation and    │
-│     │                    │   demonstrated ability to build impactful │
-│     │                    │   data-driven solutions for drug          │
-│     │                    │   discovery.                              │
+│     │                    │   with demonstrated ability to build      │
+│     │                    │   impactful data-driven solutions for     │
+│     │                    │   drug discovery.                         │
 │     │                    │   ✓ Structure-based drug design           │
 │     │                    │     (AlphaFold, docking), QSAR, and MD   │
 │     │                    │   ✓ End-to-end system building: pipelines │
@@ -177,7 +170,6 @@ $ targetfit viz --llm-score --top 10 --threshold 0.3
 │   4 │ Roche              │ Laborinformatik- und CSV │ Basel,         │ ████████
 │     │                    │ Spezialist in Pharma     │ Switzerland    │   0.65
 │     │                    │ Technical Development    │                │
-│     │                    │   ✓ Prior Roche internship               │
 │     │                    │   ✓ Data integration and pipeline skills  │
 │     │                    │   ✓ Structural bioinformatics and MD     │
 │     │                    │   ✗ No CSV (Computer System Validation)   │
@@ -241,11 +233,11 @@ $ targetfit viz --llm-score --top 10 --threshold 0.3
   Novartis                   1   ████████░░  0.68
 
 ╭───────────────────────── Score distribution ──────────────────────────────╮
-│           █                                                               │
-│         █ █                                                               │
-│       █ █ █                                                               │
-│       █ █ █                                                               │
-│       █ █ █                                                               │
-│ 0.0 0.1 0.2 0.4 0.5 0.6 0.8 0.9                                          │
-╰───────────────────────────────────────────────────────────────────────────╯
+│                              █                                            │
+│                           █  █                                            │
+│                        █  █  █                                            │
+│                        █  █  █                                            │
+│                        █  █  █                                            │
+│ 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9                                 │
+╰──────────────────────────────────────────────────────────────────────────╯
 ```

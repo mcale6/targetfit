@@ -31,8 +31,9 @@ targetfit/
 ├── prompts.md                         # LLM agent prompts (scorer, CV parser)
 ├── pyproject.toml                     # project metadata + dependencies
 ├── data/
-│   ├── companies.csv                  # input: company, url, search_url
-│   ├── cv.txt                         # your CV (plain text)
+│   ├── companies.example.csv          # sample — copy to companies.csv
+│   ├── companies.csv                  # your company list (git-ignored)
+│   ├── cv.txt                         # your CV (plain text, git-ignored)
 │   ├── jobs/                          # per-company JSON (e.g. roche.json)
 │   └── targetfit.duckdb               # DuckDB database (git-ignored)
 ├── targetfit/                         # Python package
@@ -166,7 +167,8 @@ location: Switzerland                 # used for search URL templates
 ### Typical session
 
 ```bash
-# 1. Add your CV
+# 1. Set up your data
+cp data/companies.example.csv data/companies.csv
 cp ~/cv.txt data/cv.txt
 
 # 2. Add companies (ATS platforms are auto-detected)
@@ -224,4 +226,4 @@ See [example.md](example.md) for full terminal output from a real run, including
 
 - Your **CV** and all **jobs** stay local (`data/cv.txt`, `data/jobs/*.json`, `data/targetfit.duckdb`).
 - **No external API calls**: pages are fetched directly, all LLM inference runs on your local Ollama instance.
-- `.gitignore` excludes your CV, the DuckDB file, and scraped job JSON.
+- `.gitignore` excludes your CV, company list, the DuckDB file, and scraped job JSON.
