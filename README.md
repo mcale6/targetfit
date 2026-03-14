@@ -210,6 +210,16 @@ targetfit viz --top 20 --detail
 
 ---
 
+### Example output
+
+See [example.md](example.md) for full terminal output from a real run, including:
+
+- `targetfit fetch` — scraping 99 jobs from Roche with Playwright pagination
+- `targetfit viz` — vector-only dashboard (fast)
+- `targetfit viz --llm-score` — LLM-scored dashboard with match reasons and gaps per job
+
+---
+
 ### Privacy and data
 
 - Your **CV** and all **jobs** stay local (`data/cv.txt`, `data/jobs/*.json`, `data/targetfit.duckdb`).
