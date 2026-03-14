@@ -5,6 +5,7 @@ so there is no need for a separate reader service or manual LLM extraction call.
 Everything runs locally via Ollama — zero external API costs.
 """
 
+import asyncio
 from typing import Any, Dict, List
 import warnings
 
@@ -15,6 +16,7 @@ warnings.filterwarnings(
     module="langchain_core._api.deprecation",
 )
 
+from playwright.async_api import async_playwright
 from scrapegraphai.graphs import SmartScraperGraph
 
 from utils import setup_logger
@@ -25,6 +27,25 @@ logger = setup_logger(__name__)
 
 class ScrapingError(Exception):
     """Raised when a ScrapeGraphAI scrape fails."""
+
+
+# ── Playwright renderer ─────────────────────────────────────────────────────
+
+async def _render_page(url: str, extra_wait_ms: int = 3000) -> str:
+    """Return fully-rendered HTML after JS execution completes."""
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        await page.goto(url, wait_until="networkidle", timeout=30000)
+        await page.wait_for_timeout(extra_wait_ms)
+        html = await page.content()
+        await browser.close()
+        return html
+
+
+def fetch_rendered_html(url: str, extra_wait_ms: int = 3000) -> str:
+    """Sync wrapper — fetch fully-rendered HTML from *url* using Playwright."""
+    return asyncio.run(_render_page(url, extra_wait_ms=extra_wait_ms))
 
 
 # ── ScrapeGraphAI configuration ────────────────────────────────────────────
@@ -102,9 +123,15 @@ def scrape_and_extract(url: str, company: str, config: Dict[str, Any]) -> List[D
     graph_config = _build_graph_config(config)
 
     try:
+        logger.info("Pre-rendering page with Playwright: %s", url)
+        html = fetch_rendered_html(url)
+    except Exception as exc:
+        raise ScrapingError(f"Playwright render failed for {company} ({url}): {exc}") from exc
+
+    try:
         scraper = SmartScraperGraph(
             prompt=EXTRACT_PROMPT,
-            source=url,
+            source=html,
             config=graph_config,
         )
         result = scraper.run()
