@@ -342,6 +342,87 @@ def remove_company(company: str, csv_path: str | None) -> None:
         click.echo(f"'{company}' not found.")
 
 
+@cli.command("job")
+@click.argument("urls", nargs=-1)
+@click.option("--csv", "csv_path", default=None,
+              help="CSV file with columns: url[,company]")
+@click.option("--company", "company_hint", default=None,
+              help="Override company name for all URLs in this run.")
+@click.option("--index", "auto_index", is_flag=True, default=False,
+              help="Automatically run 'index' after fetching.")
+def job_command(urls: tuple, csv_path: str | None, company_hint: str | None, auto_index: bool) -> None:
+    """Fetch one or more specific job postings by direct URL.
+
+    \b
+    Examples:
+        targetfit job https://jobs.lever.co/acme/abc-123
+        targetfit job --csv my_jobs.csv --index
+        targetfit job https://... --company "Acme Corp"
+
+    CSV format (header required):
+        url,company
+        https://...,Acme Corp
+        https://...,
+    """
+    import csv as csv_module
+
+    config = load_config()
+
+    # Collect (url, per_url_company_hint) pairs.
+    pairs: list[tuple[str, str | None]] = []
+
+    for u in urls:
+        pairs.append((u, company_hint))
+
+    if csv_path:
+        try:
+            with open(csv_path, newline="", encoding="utf-8") as f:
+                reader = csv_module.DictReader(f)
+                for row in reader:
+                    u = (row.get("url") or "").strip()
+                    if not u:
+                        continue
+                    c = (row.get("company") or "").strip() or company_hint or None
+                    pairs.append((u, c))
+        except (OSError, csv_module.Error) as exc:
+            click.echo(f"Error reading CSV {csv_path}: {exc}")
+            return
+
+    if not pairs:
+        click.echo("No URLs provided. Pass URLs as arguments or use --csv.")
+        return
+
+    fetched: list[dict] = []
+    for u, hint in pairs:
+        click.echo(f"Fetching: {u}")
+        job = scrape.fetch_job_url(u, config, company_hint=hint)
+        if job:
+            fetched.append(job)
+            click.echo(f"  OK: {job['title']} @ {job['company']}")
+        else:
+            click.echo(f"  FAILED: could not extract job from {u}")
+
+    if not fetched:
+        click.echo("No jobs fetched.")
+        return
+
+    path = save_company_jobs("direct", fetched)
+    click.echo(f"Saved {len(fetched)} job(s) to {path}.")
+
+    if auto_index:
+        click.echo("Indexing…")
+        jobs = load_all_company_jobs()
+        cv_text = load_cv()
+        if not cv_text:
+            click.echo("CV text not found in data/cv.txt — skipping index.")
+        else:
+            db.upsert_jobs(jobs, config=config)
+            db.upsert_cv(cv_text, config=config)
+            click.echo(f"Indexed {len(jobs)} total jobs.")
+    else:
+        click.echo("Run 'targetfit index' to embed and search these jobs.")
+
+
 # Re-export the rich visualisation from viz.py as a subcommand:
 cli.add_command(viz_main, "viz")
 

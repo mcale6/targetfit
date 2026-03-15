@@ -345,6 +345,95 @@ def fetch_via_api(
     return jobs
 
 
+# ── Single-job API fetchers ───────────────────────────────────────────────────
+
+def _fetch_greenhouse_single(board: str, job_id: str, company_hint: str | None) -> dict | None:
+    """Fetch a single Greenhouse job by board + job ID."""
+    api_url = f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs/{job_id}"
+    try:
+        resp = requests.get(api_url, params={"content": "true"}, timeout=_TIMEOUT)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        logger.warning("Greenhouse single-job API failed (%s/%s): %s", board, job_id, exc)
+        return None
+
+    j = resp.json()
+    title = j.get("title", "")
+    if not title:
+        return None
+
+    company = company_hint or board.replace("-", " ").title()
+    location = _greenhouse_location(j)
+    job_url = j.get("absolute_url") or j.get("url")
+    content = j.get("content") or ""
+    description = _strip_html(content)[:3000] if content else None
+    updated = (j.get("updated_at") or "")[:10] or None
+
+    return {
+        "company": company,
+        "title": title,
+        "location": location,
+        "url": job_url,
+        "description": description,
+        "date_posted": updated,
+    }
+
+
+def _fetch_lever_single(org: str, posting_id: str, company_hint: str | None) -> dict | None:
+    """Fetch a single Lever posting by org + posting ID."""
+    api_url = f"https://api.lever.co/v0/postings/{org}/{posting_id}"
+    try:
+        resp = requests.get(api_url, timeout=_TIMEOUT)
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        logger.warning("Lever single-job API failed (%s/%s): %s", org, posting_id, exc)
+        return None
+
+    j = resp.json()
+    title = j.get("text", "")
+    if not title:
+        return None
+
+    company = company_hint or org.replace("-", " ").title()
+    cats = j.get("categories", {})
+    location = cats.get("location") if isinstance(cats, dict) else None
+    job_url = j.get("hostedUrl") or j.get("applyUrl")
+    description = truncate(j.get("descriptionPlain") or "", 3000) or None
+    created = j.get("createdAt")
+    date_posted = None
+    if isinstance(created, int):
+        import datetime
+        date_posted = datetime.datetime.fromtimestamp(created / 1000).strftime("%Y-%m-%d")
+
+    return {
+        "company": company,
+        "title": title,
+        "location": location,
+        "url": job_url,
+        "description": description,
+        "date_posted": date_posted,
+    }
+
+
+def fetch_single_job_via_api(url: str, company_hint: str | None) -> dict | None:
+    """Return a job dict if *url* is a known ATS single-job URL, else None."""
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    parts = parsed.path.strip("/").split("/")
+
+    # Greenhouse: job-boards.greenhouse.io/{board}/jobs/{id}
+    if host in ("job-boards.greenhouse.io", "boards.greenhouse.io"):
+        if len(parts) >= 3 and parts[1] == "jobs":
+            return _fetch_greenhouse_single(parts[0], parts[2], company_hint)
+
+    # Lever: jobs.lever.co/{org}/{posting-id}
+    if host == "jobs.lever.co":
+        if len(parts) >= 2:
+            return _fetch_lever_single(parts[0], parts[1], company_hint)
+
+    return None
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _strip_html(html: str) -> str:

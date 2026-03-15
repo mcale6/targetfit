@@ -29,3 +29,6 @@ build/
 
 # Claude worktrees
 .claude/
+
+# Claude Code project instructions (local only)
+CLAUDE.md

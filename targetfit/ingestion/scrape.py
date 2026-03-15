@@ -20,6 +20,7 @@ import contextlib
 import io
 import re
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 import warnings
 
 # Silence noisy Pydantic v1 + Python 3.14 deprecation warnings from langchain_core.
@@ -674,3 +675,173 @@ def fetch_all(
 
     logger.info("Finished fetch_all: %d total jobs", len(all_jobs))
     return all_jobs
+
+
+# ── Single-URL job fetching ──────────────────────────────────────────────────
+
+def _resolve_company(extracted: str | None, hint: str | None, url: str) -> str:
+    """Determine company name from hint, LLM extraction, or URL domain."""
+    if hint:
+        return hint
+    if extracted and extracted.strip():
+        return extracted.strip()
+    host = urlparse(url).netloc.lower()
+    parts = host.split(".")
+    skip = {"jobs", "careers", "www", "apply", "work"}
+    meaningful = next((p for p in parts if p not in skip), parts[0])
+    return meaningful.title()
+
+
+def _repair_job_json(broken: str, config: Dict[str, Any]) -> Dict | None:
+    """Ask the fallback model to fix broken JSON from JOB_EXTRACTOR."""
+    from targetfit.nlp.llm import call_ollama, parse_json_response, LLMError, ParseError
+
+    repair_system = (
+        "You are a JSON repair tool. The user will give you broken or malformed JSON. "
+        "Return ONLY the corrected JSON object — no explanation, no markdown fences."
+    )
+    repair_prompt = (
+        "Fix this JSON so it is valid. Keep the same keys and values. "
+        'Required schema: {"title": string, "company": string, "location": string, '
+        '"description": string, "date_posted": string}\n\n'
+        f"{broken}"
+    )
+    model = config.get("fallback_model") or config.get("extraction_model") or config.get("model")
+    try:
+        resp = call_ollama(
+            prompt=repair_prompt,
+            system=repair_system,
+            config=config,
+            json_mode=True,
+            model_override=model,
+        )
+        return parse_json_response(resp)
+    except (LLMError, ParseError):
+        return None
+
+
+def fetch_job_url(
+    url: str,
+    cfg: Dict[str, Any],
+    *,
+    company_hint: str | None = None,
+) -> Dict | None:
+    """Fetch a single job posting by direct URL.
+
+    Resolution order:
+    1. ATS API — for known Greenhouse/Lever single-job URLs (fast, no LLM).
+    2. Playwright render + JOB_EXTRACTOR LLM prompt.
+    3. LLM repair on broken JSON output.
+    4. Retry with fallback model.
+    5. HTML salvage — extract <title> tag as job title.
+
+    Returns a canonical job dict or None on failure.
+    """
+    from targetfit.ingestion.ats_api import fetch_single_job_via_api
+    from targetfit.nlp.llm import (
+        _load_agent_section, _extract_system_prompt,
+        call_ollama, parse_json_response, LLMError, ParseError,
+    )
+
+    # Strategy 1: ATS API (instant, no Playwright, no LLM).
+    result = fetch_single_job_via_api(url, company_hint)
+    if result is not None:
+        logger.info("fetch_job_url: ATS API hit for %s", url)
+        return result
+
+    # Strategy 2+: Playwright render.
+    try:
+        html = fetch_rendered_html(url)
+    except Exception as exc:
+        logger.warning("fetch_job_url: Playwright render failed for %s: %s", url, exc)
+        return None
+
+    if not html:
+        logger.warning("fetch_job_url: empty HTML for %s", url)
+        return None
+
+    cleaned = _clean_html(html)
+
+    try:
+        section = _load_agent_section("JOB_EXTRACTOR")
+        system_prompt = _extract_system_prompt(section)
+    except LLMError as exc:
+        logger.error("fetch_job_url: failed to load JOB_EXTRACTOR prompt: %s", exc)
+        return None
+
+    extraction_model = cfg.get("extraction_model") or cfg.get("model")
+    fallback_model = cfg.get("fallback_model")
+    user_prompt = f"Extract the job details from this HTML:\n\n{cleaned[:8000]}"
+
+    parsed: Any = None
+    raw_resp: str = ""
+
+    # Attempt 1: extraction_model with json_mode.
+    try:
+        raw_resp = call_ollama(
+            prompt=user_prompt,
+            system=system_prompt,
+            config=cfg,
+            json_mode=True,
+            model_override=extraction_model,
+        )
+        parsed = parse_json_response(raw_resp)
+    except (LLMError, ParseError) as exc:
+        logger.warning("fetch_job_url: primary extraction failed for %s: %s", url, exc)
+
+    # Attempt 2: LLM repair on broken JSON.
+    if parsed is None and raw_resp and raw_resp.strip():
+        parsed = _repair_job_json(raw_resp, cfg)
+        if parsed is not None:
+            logger.info("fetch_job_url: JSON repair succeeded for %s", url)
+
+    # Attempt 3: retry with fallback model directly.
+    if parsed is None and fallback_model and fallback_model != extraction_model:
+        try:
+            raw_resp2 = call_ollama(
+                prompt=user_prompt,
+                system=system_prompt,
+                config=cfg,
+                json_mode=True,
+                model_override=fallback_model,
+            )
+            parsed = parse_json_response(raw_resp2)
+            if parsed is not None:
+                logger.info("fetch_job_url: fallback model succeeded for %s", url)
+        except (LLMError, ParseError) as exc:
+            logger.warning("fetch_job_url: fallback model failed for %s: %s", url, exc)
+
+    # Attempt 4: HTML salvage — use <title> tag as job title.
+    if parsed is None:
+        soup = BeautifulSoup(html, "html.parser")
+        title_tag = soup.find("title")
+        if title_tag:
+            title_text = title_tag.get_text(strip=True)
+            parsed = {
+                "title": title_text,
+                "company": None,
+                "location": None,
+                "description": None,
+                "date_posted": None,
+            }
+            logger.info("fetch_job_url: HTML salvage recovered title %r for %s", title_text, url)
+        else:
+            logger.warning("fetch_job_url: all extraction strategies failed for %s", url)
+            return None
+
+    if not isinstance(parsed, dict):
+        return None
+
+    title = parsed.get("title")
+    if not title:
+        logger.warning("fetch_job_url: no title extracted for %s", url)
+        return None
+
+    return {
+        "company": _resolve_company(parsed.get("company"), company_hint, url),
+        "title": title,
+        "location": parsed.get("location"),
+        "url": url,
+        "description": parsed.get("description"),
+        "date_posted": parsed.get("date_posted"),
+    }
