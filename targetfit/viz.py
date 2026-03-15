@@ -33,7 +33,7 @@ console = Console()
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
-def _score_bar(score: float, width: int = 12) -> Text:
+def _score_bar(score: float, width: int = 8) -> Text:
     """Return a coloured block-bar for a score in [0, 1]."""
     filled = round(score * width)
     empty = width - filled
@@ -82,7 +82,7 @@ def _histogram(scores: list[float], width: int = 40) -> str:
         line = ""
         for c in counts:
             filled = math.ceil(c / max_count * bar_height)
-            line += " █  " if filled >= row else "    "
+            line += "█   " if filled >= row else "    "
         lines.append(line)
     axis = "".join(f"{lo + i * step:.1f} " for i in range(buckets))
     lines.append(axis)
@@ -129,8 +129,8 @@ def _render_table(jobs: list[dict], show_detail: bool) -> None:
     table.add_column("Company", style="bold white", min_width=18, max_width=22)
     table.add_column("Role", min_width=24)
     table.add_column("Location", style="dim", min_width=14, max_width=18)
-    table.add_column("Score", min_width=18)
-    table.add_column("Link", style="cyan dim", min_width=6)
+    table.add_column("Score", min_width=14)
+    table.add_column("Link", min_width=20, max_width=28)
 
     for idx, job in enumerate(jobs, start=1):
         company  = job.get("company") or "—"
@@ -139,7 +139,16 @@ def _render_table(jobs: list[dict], show_detail: bool) -> None:
         url      = job.get("url")
         score    = float(job.get("final_score") or job.get("vector_score") or 0)
 
-        link_text = Text("→ apply", style="link " + url) if url else Text("—", style="dim")
+        if url:
+            from urllib.parse import urlparse
+            try:
+                domain = urlparse(url).netloc.replace("www.", "") or url[:24]
+            except Exception:
+                domain = url[:24]
+            link_text = Text()
+            link_text.append("↗ " + domain[:24], style=f"link {url} cyan")
+        else:
+            link_text = Text("—", style="dim")
         table.add_row(
             str(idx),
             company,

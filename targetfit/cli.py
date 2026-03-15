@@ -423,6 +423,147 @@ def job_command(urls: tuple, csv_path: str | None, company_hint: str | None, aut
         click.echo("Run 'targetfit index' to embed and search these jobs.")
 
 
+@cli.command("fetch-kw")
+@click.option(
+    "--keywords",
+    "keywords",
+    multiple=True,
+    required=True,
+    help="Keyword to search for (can be passed multiple times).",
+)
+@click.option(
+    "--company",
+    "company_filters",
+    multiple=True,
+    help="Limit to these companies (by name); can be passed multiple times.",
+)
+@click.option(
+    "--companies",
+    "csv_path",
+    default=None,
+    help="Path to companies CSV (default: data/companies.csv).",
+)
+def fetch_kw(
+    keywords: tuple[str, ...],
+    company_filters: tuple[str, ...],
+    csv_path: str | None,
+) -> None:
+    """Keyword-targeted fetch: scrape each company × keyword and save separate JSON files.
+
+    \b
+    Examples:
+        targetfit fetch-kw --keywords bioinformatics
+        targetfit fetch-kw --keywords bioinformatics --keywords "data science"
+        targetfit fetch-kw --keywords bioinformatics --company Roche --company Novartis
+
+    Output files: data/jobs/{company}_{keyword}.json
+    """
+    from targetfit.ingestion.scrape import probe_url, scrape_and_extract, ScrapingError
+
+    config = load_config()
+    company_list = load_companies(csv_path)
+
+    if not company_list:
+        click.echo("No companies found in CSV.")
+        return
+
+    if company_filters:
+        filters = {c.lower() for c in company_filters}
+        company_list = [c for c in company_list if c.get("company", "").lower() in filters]
+
+    if not company_list:
+        click.echo("No companies matched the requested filters.")
+        return
+
+    click.echo(
+        f"fetch-kw: {len(company_list)} companies × {len(keywords)} keyword(s) — "
+        f"{len(company_list) * len(keywords)} combination(s) to process."
+    )
+
+    # Collect companies that need manual URL attention for the final summary.
+    suggested_fixes: list[str] = []    # (company, keyword, suggested_url)
+    manual_needed: list[str] = []      # (company, keyword)
+
+    for entry in company_list:
+        company = entry.get("company", "")
+        url = entry.get("url", "")
+        if not company or not url:
+            continue
+        template = entry.get("search_url") or None
+
+        for keyword in keywords:
+            click.echo(f"  [{company}] keyword: {keyword!r}")
+
+            # Step 1: probe with template (or auto-detect if no template).
+            jobs, resolved_url = probe_url(
+                url, company, keyword, config, search_url_template=template
+            )
+
+            working_template = template
+
+            if not jobs:
+                if template:
+                    # Template failed — try auto-detect only.
+                    click.echo(f"    template probe failed; trying auto-detect…")
+                    jobs_fb, resolved_fb = probe_url(
+                        url, company, keyword, config, search_url_template=None
+                    )
+                    if jobs_fb:
+                        suggested_fixes.append(
+                            f"  {company!r} keyword={keyword!r}: "
+                            f"replace search_url with {resolved_fb!r}"
+                        )
+                        click.echo(
+                            f"    auto-detect succeeded → suggest updating search_url "
+                            f"to {resolved_fb!r}"
+                        )
+                        jobs, resolved_url = jobs_fb, resolved_fb
+                        working_template = None  # use auto-detect for the full fetch
+                    else:
+                        manual_needed.append(f"  {company!r} keyword={keyword!r}")
+                        click.echo(f"    no URL resolved — needs manual fix, skipping.")
+                        continue
+                else:
+                    manual_needed.append(f"  {company!r} keyword={keyword!r}")
+                    click.echo(f"    no URL resolved — needs manual fix, skipping.")
+                    continue
+
+            # Step 2: full fetch using the working URL.
+            # If probe returned the "probe-ok" sentinel or ATS jobs, re-run
+            # scrape_and_extract to get real results with pagination.
+            try:
+                real_jobs = scrape_and_extract(
+                    url,
+                    company,
+                    config,
+                    query=keyword,
+                    search_url_template=working_template,
+                )
+            except ScrapingError as exc:
+                click.echo(f"    scrape failed: {exc}")
+                manual_needed.append(f"  {company!r} keyword={keyword!r} (scrape error)")
+                continue
+
+            if not real_jobs:
+                click.echo(f"    0 jobs found.")
+            else:
+                path = save_company_jobs(company, real_jobs, keyword=keyword)
+                click.echo(f"    saved {len(real_jobs)} jobs → {path}")
+
+    # ── Summary ──────────────────────────────────────────────────────────
+    click.echo("\n── fetch-kw summary ──")
+    if suggested_fixes:
+        click.echo(f"\nSuggested search_url fixes ({len(suggested_fixes)}):")
+        for line in suggested_fixes:
+            click.echo(line)
+    if manual_needed:
+        click.echo(f"\nNeeds manual URL fix ({len(manual_needed)}):")
+        for line in manual_needed:
+            click.echo(line)
+    if not suggested_fixes and not manual_needed:
+        click.echo("All companies resolved successfully.")
+
+
 # Re-export the rich visualisation from viz.py as a subcommand:
 cli.add_command(viz_main, "viz")
 

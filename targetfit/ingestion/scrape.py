@@ -677,6 +677,43 @@ def fetch_all(
     return all_jobs
 
 
+# ── Keyword probe ───────────────────────────────────────────────────────────
+
+def probe_url(
+    url: str,
+    company: str,
+    query: str,
+    config: dict,
+    *,
+    search_url_template: str | None = None,
+) -> tuple[list[dict], str]:
+    """Return (jobs, resolved_url) for a company × keyword pair.
+
+    Uses the ATS API when available (fast, authoritative).  For non-ATS sites
+    resolves the search URL via url_builder — if that succeeds the call returns
+    a sentinel list ``["probe-ok"]`` so the caller knows the URL is valid
+    without paying for a full Playwright render here.  Returns ``([], url)``
+    when no URL can be resolved.
+    """
+    from targetfit.ingestion.ats_api import fetch_via_api
+
+    location = config.get("location")
+    resolved = resolve_search_url(url, query, search_url_template, location=location)
+    probe_target = resolved or url
+
+    # ATS API path — instant and authoritative.
+    api_jobs = fetch_via_api(url, company, query=query)
+    if api_jobs is not None:
+        return api_jobs, probe_target
+
+    # Non-ATS: if url_builder could resolve a search URL, treat that as
+    # a success without running a full Playwright fetch here.
+    if resolved:
+        return ["probe-ok"], resolved  # sentinel — full fetch re-runs properly
+
+    return [], url
+
+
 # ── Single-URL job fetching ──────────────────────────────────────────────────
 
 def _resolve_company(extracted: str | None, hint: str | None, url: str) -> str:

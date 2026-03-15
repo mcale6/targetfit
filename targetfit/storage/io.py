@@ -133,9 +133,17 @@ def _slugify_company(name: str) -> str:
 
 
 def save_company_jobs(
-    company: str, jobs: List[Dict[str, Any]], base_dir: str | None = None
+    company: str,
+    jobs: List[Dict[str, Any]],
+    base_dir: str | None = None,
+    *,
+    keyword: str | None = None,
 ) -> Path:
-    """Save jobs for a single company to data/jobs/{company}.json.
+    """Save jobs for a single company to data/jobs/{company}[_{keyword}].json.
+
+    When *keyword* is given the file is named ``{company}_{keyword}.json``
+    (e.g. ``roche_bioinformatics.json``), keeping keyword-targeted results
+    separate from the general fetch.
 
     Merges *jobs* into any existing file for this company, deduplicating
     on (title, url) so repeated fetches or multi-query runs accumulate
@@ -144,7 +152,11 @@ def save_company_jobs(
     slug = _slugify_company(company)
     base = Path(base_dir) if base_dir else _DATA_DIR / "jobs"
     base.mkdir(parents=True, exist_ok=True)
-    path = base / f"{slug}.json"
+    if keyword:
+        kw_slug = _slugify_company(keyword)
+        path = base / f"{slug}_{kw_slug}.json"
+    else:
+        path = base / f"{slug}.json"
 
     existing: List[Dict[str, Any]] = []
     if path.exists():
