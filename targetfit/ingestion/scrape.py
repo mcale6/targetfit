@@ -19,7 +19,9 @@ import asyncio
 import contextlib
 import io
 import re
-from typing import Any, Dict, List, Optional
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Dict, List
 from urllib.parse import urlparse
 import warnings
 
@@ -573,26 +575,226 @@ def scrape_and_extract(
     return jobs
 
 
+# ── Company classification & parallel processing helpers ─────────────────────
+
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+}
+
+
+def _classify_companies(
+    companies: list[dict[str, str]],
+    queries: list[str | None],
+    config: dict,
+) -> dict[str, list[dict[str, str]]]:
+    """Classify companies into processing tiers.
+
+    Uses ``detect_ats()`` and ``resolve_search_url()`` (no Playwright).
+    Returns dict with keys: ats_api, has_search_url, playwright_form, skip.
+    """
+    from targetfit.ingestion.ats_api import detect_ats
+
+    tiers: dict[str, list[dict[str, str]]] = {
+        "ats_api": [],
+        "has_search_url": [],
+        "playwright_form": [],
+        "skip": [],
+    }
+
+    location = config.get("location")
+    sample_query = next((q for q in queries if q is not None), "engineer")
+
+    for entry in companies:
+        company = entry.get("company")
+        url = entry.get("url")
+        if not company or not url:
+            tiers["skip"].append(entry)
+            continue
+
+        ats = detect_ats(url)
+        if ats is not None:
+            tiers["ats_api"].append(entry)
+            continue
+
+        search_url_template = entry.get("search_url") or None
+        resolved = resolve_search_url(
+            url, sample_query, search_url_template, location=location,
+        )
+        if resolved:
+            tiers["has_search_url"].append(entry)
+            continue
+
+        tiers["playwright_form"].append(entry)
+
+    logger.info(
+        "Classification: %d ATS API | %d search URL | %d Playwright | %d skip",
+        len(tiers["ats_api"]),
+        len(tiers["has_search_url"]),
+        len(tiers["playwright_form"]),
+        len(tiers["skip"]),
+    )
+    return tiers
+
+
+def _quick_relevance_check(url: str, query: str, timeout: int = 10) -> bool:
+    """Partial GET to check if a search URL likely has relevant results.
+
+    Opt-in heuristic (--prefilter).  May have false negatives for JS-rendered
+    pages.  Returns True on failure (assume relevant).
+    """
+    import requests as _requests
+
+    try:
+        resp = _requests.get(
+            url, timeout=timeout, headers=_BROWSER_HEADERS, stream=True,
+        )
+        chunk = resp.raw.read(5120).decode("utf-8", errors="ignore")
+        resp.close()
+        words = [w.lower() for w in query.split() if len(w) >= 3]
+        return any(w in chunk.lower() for w in words)
+    except Exception:
+        return True
+
+
+def _process_ats_company(
+    entry: dict[str, str],
+    queries: list[str | None],
+    config: dict,
+) -> list[dict]:
+    """Process a single ATS-API company via direct HTTP API calls."""
+    from targetfit.ingestion.ats_api import fetch_via_api
+
+    company = entry.get("company", "")
+    url = entry.get("url", "")
+    company_jobs: list[dict] = []
+    seen_keys: set[tuple] = set()
+
+    for query in queries:
+        try:
+            api_jobs = fetch_via_api(url, company, query=query)
+        except Exception as exc:
+            logger.warning("[%s] ATS API error (query %r): %s", company, query, exc)
+            continue
+        if api_jobs is None:
+            continue
+        for job in api_jobs:
+            key = (job.get("title"), job.get("url"))
+            if key not in seen_keys:
+                seen_keys.add(key)
+                company_jobs.append(job)
+
+    # Fallback: try without query if all queries returned 0.
+    if not company_jobs and queries != [None]:
+        try:
+            api_jobs = fetch_via_api(url, company, query=None)
+            if api_jobs:
+                for job in api_jobs:
+                    key = (job.get("title"), job.get("url"))
+                    if key not in seen_keys:
+                        seen_keys.add(key)
+                        company_jobs.append(job)
+        except Exception as exc:
+            logger.warning("[%s] ATS API fallback error: %s", company, exc)
+
+    return company_jobs
+
+
+def _process_pw_company(
+    entry: dict[str, str],
+    queries: list[str | None],
+    config: dict,
+    prefilter: bool = False,
+) -> list[dict]:
+    """Process a single company via Playwright scraping."""
+    company = entry.get("company", "")
+    url = entry.get("url", "")
+    search_url_template = entry.get("search_url") or None
+    company_jobs: list[dict] = []
+    seen_keys: set[tuple] = set()
+
+    for qi, query in enumerate(queries, 1):
+        if query is not None:
+            logger.info("[%s] query %d/%d: %r", company, qi, len(queries), query)
+
+            # Optional: skip if initial HTML has no matching keywords.
+            if prefilter:
+                location = config.get("location")
+                resolved = resolve_search_url(
+                    url, query, search_url_template, location=location,
+                )
+                if resolved and not _quick_relevance_check(resolved, query):
+                    logger.info(
+                        "[%s] prefilter: skipping %r (no keywords in initial HTML)",
+                        company, query,
+                    )
+                    continue
+
+        try:
+            jobs = scrape_and_extract(
+                url, company=company, config=config,
+                query=query, search_url_template=search_url_template,
+            )
+        except ScrapingError as exc:
+            logger.warning("Skipping %s (query %r): %s", company, query, exc)
+            continue
+
+        for job in jobs:
+            key = (job.get("title"), job.get("url"))
+            if key not in seen_keys:
+                seen_keys.add(key)
+                company_jobs.append(job)
+
+    # Fallback: if all queries returned 0, scrape landing page.
+    if not company_jobs and queries != [None]:
+        logger.info(
+            "[%s] queries returned 0 jobs — falling back to landing page: %s",
+            company, url,
+        )
+        try:
+            fallback_jobs = scrape_and_extract(
+                url, company=company, config=config, query=None,
+            )
+            for job in fallback_jobs:
+                key = (job.get("title"), job.get("url"))
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    company_jobs.append(job)
+        except ScrapingError as exc:
+            logger.warning("Fallback scrape failed for %s: %s", company, exc)
+
+    return company_jobs
+
+
 def fetch_all(
     companies: List[Dict[str, str]],
     config: Dict,
     search_terms: "SearchTerms | None" = None,
+    *,
+    max_workers: int | None = None,
+    prefilter: bool = False,
 ) -> List[Dict]:
-    """Scrape + extract jobs for all companies in the list.
+    """Scrape + extract jobs for all companies with concurrent processing.
 
-    When *search_terms* carries multiple queries, **every** query is tried
-    for each company.  Results are deduplicated on (company, title, url)
-    and merged into the per-company JSON file (never overwritten).
+    Pipeline:
+    1. Classify companies into tiers (ATS API, search URL, Playwright form).
+    2. Process all ATS-API companies in parallel (fast HTTP calls).
+    3. Process remaining companies in parallel with limited Playwright workers.
 
     Args:
         companies:    List of dicts with keys ``company``, ``url``,
                       and optional ``search_url`` (template from CSV).
         config:       Config dict from config.yaml.
-        search_terms: SearchTerms extracted from the CV.  All ``queries``
-                      are used (not just the first one).
+        search_terms: SearchTerms extracted from the CV.
+        max_workers:  Max concurrent Playwright sessions (default: config or 3).
+        prefilter:    If True, do a quick relevance check before Playwright scraping.
 
     Returns a flat list of job dicts ready for saving / indexing.
     """
+    import click
+
     from targetfit.storage.io import save_company_jobs
 
     # Build the list of queries to try.
@@ -611,75 +813,98 @@ def fetch_all(
     else:
         logger.info("fetch_all: no search query — scraping landing pages")
 
+    # ── Classify companies ────────────────────────────────────────────────
+    tiers = _classify_companies(companies, queries, config)
+    ats_companies = tiers["ats_api"]
+    pw_companies = tiers["has_search_url"] + tiers["playwright_form"]
+    skipped = tiers["skip"]
+    total_active = len(ats_companies) + len(pw_companies)
+
+    click.echo(
+        f"Company tiers: {len(ats_companies)} ATS API | "
+        f"{len(tiers['has_search_url'])} search URL | "
+        f"{len(tiers['playwright_form'])} Playwright form | "
+        f"{len(skipped)} skip"
+    )
+
     all_jobs: List[Dict] = []
+    _lock = threading.Lock()
+    _done = [0]
+    _total_jobs = [0]
+    _ats_done = [0]
 
-    logger.info("Starting fetch for %d companies × %d queries", len(companies), len(queries))
-    for entry in companies:
-        company = entry.get("company")
-        url = entry.get("url")
-        if not company or not url:
-            continue
-
-        search_url_template = entry.get("search_url") or None
-
-        # Accumulate jobs across all queries for this company, dedup in memory.
-        company_jobs: list[Dict] = []
-        seen_keys: set[tuple] = set()
-
-        for qi, query in enumerate(queries, 1):
-            if query is not None:
-                logger.info(
-                    "[%s] query %d/%d: %r", company, qi, len(queries), query,
-                )
-
-            try:
-                jobs = scrape_and_extract(
-                    url,
-                    company=company,
-                    config=config,
-                    query=query,
-                    search_url_template=search_url_template,
-                )
-            except ScrapingError as exc:
-                logger.warning("Skipping %s (query %r): %s", company, query, exc)
-                continue
-
-            # Dedup within the company across queries.
-            for job in jobs:
-                key = (job.get("title"), job.get("url"))
-                if key not in seen_keys:
-                    seen_keys.add(key)
-                    company_jobs.append(job)
-
-        # Fallback: if all search queries returned 0 jobs, scrape the
-        # original landing page without a query (gets ALL jobs via pagination).
-        if not company_jobs and queries != [None]:
-            logger.info(
-                "[%s] search queries returned 0 jobs — falling back to landing page: %s",
-                company, url,
+    def _progress(company: str, job_count: int, *, is_ats: bool = False) -> None:
+        with _lock:
+            _done[0] += 1
+            _total_jobs[0] += job_count
+            if is_ats:
+                _ats_done[0] += 1
+            pw_done = _done[0] - _ats_done[0]
+            click.echo(
+                f"Fetch progress: {_done[0]}/{total_active} companies done | "
+                f"{_total_jobs[0]} jobs | "
+                f"ATS: {_ats_done[0]}/{len(ats_companies)} | "
+                f"Playwright: {pw_done}/{len(pw_companies)}"
             )
-            try:
-                fallback_jobs = scrape_and_extract(
-                    url, company=company, config=config, query=None,
-                )
-                for job in fallback_jobs:
-                    key = (job.get("title"), job.get("url"))
-                    if key not in seen_keys:
-                        seen_keys.add(key)
-                        company_jobs.append(job)
-            except ScrapingError as exc:
-                logger.warning("Fallback scrape failed for %s: %s", company, exc)
 
-        # Persist per-company results immediately (merge, not overwrite).
+    def _save_and_collect(company: str, company_jobs: list[dict]) -> None:
         if company_jobs:
             try:
-                path = save_company_jobs(company, company_jobs)
-                logger.info("Saved %d jobs for %s to %s", len(company_jobs), company, path)
+                save_company_jobs(company, company_jobs)
             except Exception:
-                logger.debug("Immediate save failed for %s (continuing)", company)
+                logger.debug("Immediate save failed for %s", company)
             all_jobs.extend(company_jobs)
         else:
-            logger.warning("No jobs found for %s across %d queries", company, len(queries))
+            logger.warning("No jobs found for %s", company)
+
+    # ── Phase 1: ATS-API companies (fast, high concurrency) ──────────────
+    if ats_companies:
+        logger.info("Phase 1: %d ATS-API companies (8 workers)", len(ats_companies))
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = {
+                pool.submit(_process_ats_company, entry, queries, config): entry
+                for entry in ats_companies
+            }
+            for future in as_completed(futures):
+                entry = futures[future]
+                company = entry.get("company", "")
+                try:
+                    cj = future.result()
+                except Exception as exc:
+                    logger.warning("[%s] ATS processing failed: %s", company, exc)
+                    cj = []
+                _save_and_collect(company, cj)
+                _progress(company, len(cj), is_ats=True)
+
+    # ── Phase 2: Playwright companies (limited concurrency) ──────────────
+    pw_max = max_workers or int(config.get("max_workers", 3))
+    if pw_companies:
+        logger.info(
+            "Phase 2: %d Playwright companies (%d workers)",
+            len(pw_companies), pw_max,
+        )
+        with ThreadPoolExecutor(max_workers=pw_max) as pool:
+            futures = {
+                pool.submit(
+                    _process_pw_company, entry, queries, config, prefilter,
+                ): entry
+                for entry in pw_companies
+            }
+            for future in as_completed(futures):
+                entry = futures[future]
+                company = entry.get("company", "")
+                try:
+                    cj = future.result()
+                except Exception as exc:
+                    logger.warning(
+                        "[%s] Playwright failed: %s", company, exc,
+                    )
+                    cj = []
+                _save_and_collect(company, cj)
+                _progress(company, len(cj))
+
+    for entry in skipped:
+        logger.warning("Skipped %s (missing company/url)", entry.get("company", "?"))
 
     logger.info("Finished fetch_all: %d total jobs", len(all_jobs))
     return all_jobs

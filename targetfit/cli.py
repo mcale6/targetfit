@@ -50,11 +50,25 @@ def cli() -> None:
     default=False,
     help="Skip CV parsing and scrape landing pages without a search query.",
 )
+@click.option(
+    "--workers",
+    default=None,
+    type=int,
+    help="Max concurrent Playwright sessions (default: from config or 3).",
+)
+@click.option(
+    "--prefilter",
+    is_flag=True,
+    default=False,
+    help="Quick relevance check before Playwright scraping (may skip some companies).",
+)
 def fetch(
     companies: str | None,
     company_filters: tuple[str, ...],
     query_override: tuple[str, ...],
     skip_cv_parse: bool,
+    workers: int | None,
+    prefilter: bool,
 ) -> None:
     """Scrape careers pages and write per-company JSON files under data/jobs/.
 
@@ -120,7 +134,10 @@ def fetch(
         )
 
     # ── Scrape ────────────────────────────────────────────────────────────
-    all_jobs = scrape.fetch_all(company_list, config=config, search_terms=search_terms)
+    all_jobs = scrape.fetch_all(
+        company_list, config=config, search_terms=search_terms,
+        max_workers=workers, prefilter=prefilter,
+    )
 
     # Persist jobs split by company.
     by_company: dict[str, list[dict]] = {}

@@ -13,3 +13,4 @@ max_description_chars: 4000
 headless: true
 llm_max_tokens: 8192
 location: Switzerland
+max_workers: 3  # concurrent Playwright sessions for non-ATS companies
