@@ -68,23 +68,15 @@ def check_company(
                 "note": f"ATS API found {len(jobs_via_api)} jobs",
             }
 
-    # Step 2: Check for search_url template
-    if not search_url_template or "{query}" not in search_url_template:
-        return {
-            "status": "NO_SEARCH_URL",
-            "count": 0,
-            "resolved_url": None,
-            "note": "No search_url template in CSV or missing {query} placeholder",
-        }
-
-    # Step 3: Resolve search URL
-    resolved_url = resolve_search_url(url, QUERY, search_url_template, location="")
+    # Step 2: Resolve search URL (tries CSV template first, then auto-detection)
+    template = search_url_template if search_url_template and "{query}" in search_url_template else None
+    resolved_url = resolve_search_url(url, QUERY, template, location="")
     if resolved_url is None:
         return {
             "status": "NO_SEARCH_URL",
             "count": 0,
             "resolved_url": None,
-            "note": "URL builder could not resolve template",
+            "note": "No search_url template and no auto-detected pattern",
         }
 
     # Step 4: HTTP GET
