@@ -198,7 +198,7 @@ async def _scroll_to_load(page: Page, max_scrolls: int = 6, pause_ms: int = 1000
 async def _render_all_pages(
     url: str,
     extra_wait_ms: int = 3000,
-    max_pages: int = 50,
+    max_pages: int = 5,
     page_wait_ms: int = 2000,
     search_query: str | None = None,
 ) -> list[str]:
@@ -273,7 +273,7 @@ def fetch_rendered_html(url: str, extra_wait_ms: int = 3000,
     return pages[0] if pages else ""
 
 
-def fetch_all_pages(url: str, extra_wait_ms: int = 3000, max_pages: int = 50,
+def fetch_all_pages(url: str, extra_wait_ms: int = 3000, max_pages: int = 5,
                     search_query: str | None = None) -> list[str]:
     """Sync wrapper — fetch rendered HTML for every page of results."""
     return asyncio.run(
