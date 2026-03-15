@@ -1,6 +1,8 @@
 extraction_model: gpt-oss:20b
 scoring_model: gpt-oss:20b
 fallback_model: gemma3:27b
+# Optional: lightweight model for URL probing (defaults to fallback_model if not set)
+# probe_model: llama3.2:3b
 ollama_url: http://localhost:11434
 embedding_model: snowflake-arctic-embed2
 embedding_dims: 1024  # Updated to match snowflake-arctic-embed2 output dims
