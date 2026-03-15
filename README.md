@@ -12,6 +12,15 @@
 
 ---
 
+## TO DO:
+- Link of actual job description should be saved
+- Pydantic structured output schema
+- saving jon_keyword correctly
+- ScriptCreatorGraph cache layer
+- Improve matching/scoring: e.g Asymmetric retrieval with instruction prefixes. Hybrid search — dense + sparse (BM25 + cosine) and merging with Reciprocal Rank Fusion (RRF)
+- Multi-vector representations (for position ranking) with Graph-augmented retrieval
+- Cross-encoder re-ranking
+
 ## Features
 
 - **Company-centric pipeline**: manage your target list via `data/companies.csv` or the `add` / `remove` CLI commands.

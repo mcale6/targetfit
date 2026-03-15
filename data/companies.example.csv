@@ -1,6 +1,14 @@
 company,url,search_url
 Google,https://careers.google.com/jobs/,https://careers.google.com/jobs/results/?q={query}&location={location}
-Roche,https://careers.roche.com/global/en/c/research-development-jobs,https://careers.roche.com/global/en/search-results?keywords={query}&location={location}
-Lila Sciences,https://job-boards.greenhouse.io/lilasciences,
-CuspAI,https://jobs.ashbyhq.com/cuspai,
+Microsoft,https://careers.microsoft.com/,https://jobs.careers.microsoft.com/global/en/search?q={query}&l=en_us&lc={location}&pgSz=20&o=Relevance
+Pfizer,https://pfizer.wd1.myworkdayjobs.com/PfizerCareers,
+Merck,https://www.merck.com/careers/,https://jobs.merck.com/search-jobs/{query}/{location}
+AstraZeneca,https://careers.astrazeneca.com/,https://careers.astrazeneca.com/search-jobs?q={query}&location={location}&country=
 Novartis,https://www.novartis.com/careers,https://www.novartis.com/careers/career-search?q={query}&location={location}
+Roche,https://careers.roche.com/global/en/c/research-development-jobs,https://careers.roche.com/global/en/search-results?keywords={query}&location={location}
+Bristol Myers Squibb,https://careers.bms.com/,https://careers.bms.com/jobs/search?q={query}&location={location}&country=
+Eli Lilly,https://lilly.wd5.myworkdayjobs.com/LLY,
+Boehringer Ingelheim,https://careers.boehringer-ingelheim.com/,https://careers.boehringer-ingelheim.com/search?q={query}&location={location}
+J&J,https://careers.jnj.com/,https://jobs.jnj.com/jobs?query={query}&location={location}
+Genentech,https://careers.gene.com/,https://careers.gene.com/search-jobs?q={query}&location={location}
+Meta,https://www.metacareers.com/,https://www.metacareers.com/jobs/?q={query}&offices[0]={location}

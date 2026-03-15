@@ -82,15 +82,25 @@ def job_id(job: Dict[str, Any]) -> str:
 
 
 def embedding_text_for_job(job: Dict[str, Any]) -> str:
-    """Build stable text for job embeddings even when description is missing."""
-    parts = [
-        job.get("title") or "",
-        job.get("company") or "",
-        job.get("location") or "",
-        job.get("description") or "",
-    ]
-    text = "\n".join(part.strip() for part in parts if str(part).strip())
-    return text.strip()
+    """Build labeled text for job embeddings even when description is missing."""
+    title = (job.get("title") or "").strip()
+    company = (job.get("company") or "").strip()
+    location = (job.get("location") or "").strip()
+    description = (job.get("description") or "").strip()
+
+    parts: List[str] = []
+    if title:
+        parts.append(f"Job Title: {title}")
+    if company:
+        parts.append(f"Company: {company}")
+    if location:
+        parts.append(f"Location: {location}")
+    if description:
+        parts.append(f"Description: {description}")
+    elif title:
+        # Avoid sparse embedding when description missing
+        parts.append(f"Role: {title}")
+    return "\n".join(parts)
 
 
 def upsert_job(
@@ -135,7 +145,7 @@ def upsert_jobs(jobs: List[Dict[str, Any]], config: Dict[str, Any]) -> None:
     with conn:
         for job in jobs:
             text = embedding_text_for_job(job)
-            embedding = get_embedding(text, config=config)
+            embedding = get_embedding(text, config=config, mode="document")
             upsert_job(conn, job, embedding)
 
     logger.info("Inserted/updated %d jobs into %s", len(jobs), config.get("db_path"))
@@ -151,7 +161,7 @@ def upsert_cv(cv_text: str, config: Dict[str, Any]) -> None:
     init_schema(conn, config)
 
     logger.info("Upserting CV embedding")
-    embedding = get_embedding(cv_text, config=config)
+    embedding = get_embedding(cv_text, config=config, mode="document")
     with conn:
         conn.execute(
             "INSERT OR REPLACE INTO cv (id, embedding) VALUES ('main', ?);",
@@ -170,7 +180,7 @@ def query_similar_jobs(cv_text: str, config: Dict[str, Any]) -> List[Dict[str, A
     init_schema(conn, config)
 
     logger.info("Querying top %d similar jobs", top_k)
-    cv_embedding = get_embedding(cv_text, config=config)
+    cv_embedding = get_embedding(cv_text, config=config, mode="query")
 
     query = f"""
         SELECT

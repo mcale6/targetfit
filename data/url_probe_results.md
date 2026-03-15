@@ -6,10 +6,9 @@ Generated for keyword: **bioinformatics**
 
 - **ATS_HAS_JOBS**: 3
 - **ATS_NO_RESULTS**: 3
-- **BROKEN**: 1
-- **HAS_JOBS**: 15
-- **JS_RENDERED**: 2
-- **NO_RESULTS**: 42
+- **HAS_JOBS**: 16
+- **JS_RENDERED**: 3
+- **NO_RESULTS**: 41
 - **NO_SEARCH_URL**: 27
 
 Total: 93 companies
@@ -30,10 +29,11 @@ Total: 93 companies
 | Goldman Sachs | LLM detected ~0 jobs | `https://higher.gs.com/roles?query=bioinformatics` |
 | Hays | LLM detected ~0 jobs | `https://www.hays.ch/en/jobsearch/job-offers?q=bioinformatics` |
 | J&J | LLM detected ~0 jobs | `https://jobs.jnj.com/jobs?query=bioinformatics&location=` |
-| Mettler Toledo | LLM detected ~0 jobs | `https://careers.mt.com/en_US/careers/SearchJobs/?keyword=bioinformatics` |
 | Novartis | LLM detected ~0 jobs | `https://www.novartis.com/careers/career-search?q=bioinformatics&location=` |
 | Nvidia | LLM detected ~0 jobs | `https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite?q=bioinformatics&locationHierarchy1=` |
 | Palantir | LLM detected ~0 jobs | `https://www.palantir.com/careers/open-positions/?q=bioinformatics&location=` |
+| PerkinElmer Informatics | LLM detected ~0 jobs | `https://jobs.perkinelmer.com/search-jobs?q=bioinformatics` |
+| Roche | LLM detected ~0 jobs | `https://careers.roche.com/global/en/search-results?keywords=bioinformatics&location=` |
 | Rolic (BASF) | LLM detected ~0 jobs | `https://basf.jobs/?q=bioinformatics` |
 | UBS | LLM detected ~0 jobs | `https://www.ubs.com/global/en/careers/search-jobs.html?q=bioinformatics` |
 
@@ -74,7 +74,6 @@ Total: 93 companies
 | Bayer | URL works but no matching jobs found | `https://career.bayer.com/en/careers/?q=bioinformatics&location=` |
 | BlackRock | URL works but no matching jobs found | `https://careers.blackrock.com/search-jobs?q=bioinformatics&location=` |
 | Bloomberg | URL works but no matching jobs found | `https://bloomberg.avature.net/careers/SearchJobs?q=bioinformatics` |
-| Boehringer Ingelheim | URL works but no matching jobs found | `https://careers.boehringer-ingelheim.com/search?q=bioinformatics&location=` |
 | Cisco | URL works but no matching jobs found | `https://jobs.cisco.com/jobs/SearchJobs/bioinformatics?listFilterMode=1&location=` |
 | DeepMind | URL works but no matching jobs found | `https://deepmind.google/careers/?q=bioinformatics&location=` |
 | EY | URL works but no matching jobs found | `https://www.ey.com/en_ch/careers/job-search?q=bioinformatics` |
@@ -91,6 +90,7 @@ Total: 93 companies
 | Lonza | URL works but no matching jobs found | `https://www.lonza.com/careers/job-search?q=bioinformatics&location=` |
 | McKinsey | URL works but no matching jobs found | `https://www.mckinsey.com/careers/search-jobs?q=bioinformatics&locations=` |
 | Meta | URL works but no matching jobs found | `https://www.metacareers.com/jobs/?q=bioinformatics&offices[0]=` |
+| Mettler Toledo | URL works but no matching jobs found | `https://careers.mt.com/en_US/careers/SearchJobs/?keyword=bioinformatics` |
 | Microsoft | URL works but no matching jobs found | `https://jobs.careers.microsoft.com/global/en/search?q=bioinformatics&l=en_us&lc=&pgSz=20&o=Relevance` |
 | Monte Rosa Therapeutics | URL works but no matching jobs found | `https://careers-monterosatx.icims.com/jobs/intro?ss=bioinformatics&searchLocation=` |
 | Nestle | URL works but no matching jobs found | `https://jobdetails.nestle.com/job-list?keyword=bioinformatics` |
@@ -100,7 +100,6 @@ Total: 93 companies
 | Promega | URL works but no matching jobs found | `https://careers.promega.com/jobs?q=bioinformatics` |
 | PwC | URL works but no matching jobs found | `https://www.pwc.ch/en/careers-with-pwc/open-positions.html?q=bioinformatics` |
 | Recursion | URL works but no matching jobs found | `https://www.recursion.com/careers#jobs?q=bioinformatics` |
-| Roche | URL works but no matching jobs found | `https://careers.roche.com/global/en/search-results?keywords=bioinformatics&location=` |
 | Sandoz | URL works but no matching jobs found | `https://www.sandoz.com/careers/job-search/?q=bioinformatics` |
 | Sartorius | URL works but no matching jobs found | `https://www.sartorius.com/en/company/careers/vacancies-job-opportunities?q=bioinformatics` |
 | Syneos Health | URL works but no matching jobs found | `https://commercialcareers.syneoshealth.com/jobs/search?q=bioinformatics` |
@@ -112,16 +111,9 @@ Total: 93 companies
 
 | Company | Note | URL |
 |---------|------|-----|
+| Boehringer Ingelheim | Page is mostly JS-rendered (Playwright needed) | `https://careers.boehringer-ingelheim.com/search?q=bioinformatics&location=` |
 | Bristol Myers Squibb | Page is mostly JS-rendered (Playwright needed) | `https://careers.bms.com/jobs/search?q=bioinformatics&location=&country=` |
 | Merck | Page is mostly JS-rendered (Playwright needed) | `https://jobs.merck.com/search-jobs/bioinformatics/` |
-
-## BROKEN
-
-🔴 **Fix or remove broken URL**
-
-| Company | Note | URL |
-|---------|------|-----|
-| PerkinElmer Informatics | HTTP 500 | `https://perkinelmer.wd1.myworkdayjobs.com/External?q=bioinformatics` |
 
 ## NO_SEARCH_URL
 

@@ -22,6 +22,8 @@ Return ONLY a valid JSON object with this exact schema:
 Rules:
 - "queries" must be short and URL-friendly (no special characters).
 - Order "queries" from most specific to most general.
+- Prefer terms that appear in job titles on ATS platforms (e.g. "Senior Scientist" not "experienced researcher").
+- Order from most specific role match to broadest relevant search.
 - Focus on the candidate's strongest/most recent experience.
 - Do NOT invent experience not in the CV.
 - Return ONLY the JSON object. No preamble, no markdown fences.
@@ -73,11 +75,17 @@ Return ONLY a valid JSON object with this exact schema:
 }
 
 Scoring guide (within the seniority cap):
-- 0.9 – 1.0 : Exceptional match. Candidate meets almost all requirements.
-- 0.7 – 0.9 : Strong match. Minor gaps that are bridgeable.
-- 0.5 – 0.7 : Partial match. Relevant background but notable gaps.
-- 0.3 – 0.5 : Weak match. Some transferable skills but significant misalignment.
-- 0.0 – 0.3 : Poor match. Different domain or seniority level.
+- 0.85 – 1.0 : Exceptional match. Tight alignment across skills, experience, and seniority.
+- 0.70 – 0.85: Strong match. Minor gaps that are bridgeable.
+- 0.50 – 0.70: Partial match. Relevant background but notable gaps.
+- 0.30 – 0.50: Weak match. Some transferable skills but significant misalignment.
+- 0.00 – 0.30: Poor match. Different domain or seniority level.
+
+Calibration: Most realistic matches fall in 0.60–0.80. Reserve >0.85 for tight
+alignment across skills, experience, and seniority.
+
+When description is missing or very short, score on title-to-CV alignment.
+Use 0.40–0.60 range for plausible-but-uncertain matches.
 
 Rules:
 - Be honest and critical. Do NOT inflate scores.
@@ -127,7 +135,6 @@ Return ONLY a valid JSON object with this exact schema:
 Rules:
 - Extract the single job on this page. Do NOT invent content.
 - For description, capture the full requirements and responsibilities as plain text.
-- Truncate description to at most 3000 characters.
 - Set any missing field to null.
 - Return ONLY the JSON object. No preamble, no markdown fences.
 ```
