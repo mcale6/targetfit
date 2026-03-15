@@ -130,7 +130,7 @@ def _render_table(jobs: list[dict], show_detail: bool) -> None:
     table.add_column("Role", min_width=24)
     table.add_column("Location", style="dim", min_width=14, max_width=18)
     table.add_column("Score", min_width=14)
-    table.add_column("Link", min_width=20, max_width=28)
+    table.add_column("Link", min_width=20, no_wrap=True)
 
     for idx, job in enumerate(jobs, start=1):
         company  = job.get("company") or "—"
@@ -140,13 +140,8 @@ def _render_table(jobs: list[dict], show_detail: bool) -> None:
         score    = float(job.get("final_score") or job.get("vector_score") or 0)
 
         if url:
-            from urllib.parse import urlparse
-            try:
-                domain = urlparse(url).netloc.replace("www.", "") or url[:24]
-            except Exception:
-                domain = url[:24]
             link_text = Text()
-            link_text.append("↗ " + domain[:24], style=f"link {url} cyan")
+            link_text.append(url, style=f"link {url} cyan")
         else:
             link_text = Text("—", style="dim")
         table.add_row(

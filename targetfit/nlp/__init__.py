@@ -1,6 +1,7 @@
 """NLP — Ollama LLM integration and CV parsing."""
 
-from targetfit.nlp.cv_parser import SearchTerms, extract_search_terms
+from targetfit.models import SearchTerms
+from targetfit.nlp.cv_parser import extract_search_terms
 from targetfit.nlp.llm import (
     LLMError,
     ParseError,

@@ -7,6 +7,8 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
+from pydantic import BaseModel
+
 from targetfit.config import PROJECT_ROOT
 
 
@@ -98,7 +100,9 @@ def load_cv(path: str | None = None) -> str:
 
 
 def _dataclass_to_dict(obj: Any) -> Any:
-    if is_dataclass(obj):
+    if isinstance(obj, BaseModel):
+        return obj.model_dump()
+    if is_dataclass(obj) and not isinstance(obj, type):
         return asdict(obj)
     if isinstance(obj, (list, tuple)):
         return [_dataclass_to_dict(x) for x in obj]

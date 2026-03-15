@@ -10,6 +10,7 @@ dependencies = [
     "numpy",
     "ollama",
     "playwright",
+    "pydantic>=2.0",
     "pyyaml",
     "requests",
     "rich",

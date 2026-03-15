@@ -36,6 +36,7 @@ from scrapegraphai.graphs import SmartScraperGraph
 
 from targetfit.ingestion.url_builder import resolve_search_url
 from targetfit.log import setup_logger
+from targetfit.models import SearchTerms
 
 
 logger = setup_logger(__name__)
@@ -544,6 +545,10 @@ def scrape_and_extract(
     # Normalise and deduplicate.
     all_raw = _dedup_jobs(all_raw)
 
+    from pydantic import ValidationError
+
+    from targetfit.models import Job
+
     jobs: List[Dict[str, Any]] = []
     for item in all_raw:
         if not isinstance(item, dict):
@@ -551,14 +556,18 @@ def scrape_and_extract(
         title = item.get("title")
         if not title:
             continue
-        jobs.append({
-            "company": company,
-            "title": title,
-            "location": item.get("location"),
-            "url": item.get("url"),
-            "description": item.get("description"),
-            "date_posted": item.get("date_posted"),
-        })
+        try:
+            jobs.append(Job(
+                company=company,
+                title=title,
+                location=item.get("location"),
+                url=item.get("url"),
+                description=item.get("description"),
+                date_posted=item.get("date_posted"),
+            ).model_dump())
+        except ValidationError:
+            logger.debug("Skipping invalid job item: %s", title)
+            continue
 
     logger.info("Extracted %d jobs for %s (%s)", len(jobs), company, url)
     return jobs
@@ -584,7 +593,6 @@ def fetch_all(
 
     Returns a flat list of job dicts ready for saving / indexing.
     """
-    from targetfit.nlp.cv_parser import SearchTerms as _SearchTerms  # noqa: F401
     from targetfit.storage.io import save_company_jobs
 
     # Build the list of queries to try.
@@ -731,16 +739,19 @@ def _resolve_company(extracted: str | None, hint: str | None, url: str) -> str:
 
 def _repair_job_json(broken: str, config: Dict[str, Any]) -> Dict | None:
     """Ask the fallback model to fix broken JSON from JOB_EXTRACTOR."""
+    import json as _json
+
+    from targetfit.models import ExtractedJob
     from targetfit.nlp.llm import call_ollama, parse_json_response, LLMError, ParseError
 
     repair_system = (
         "You are a JSON repair tool. The user will give you broken or malformed JSON. "
         "Return ONLY the corrected JSON object — no explanation, no markdown fences."
     )
+    schema_str = _json.dumps(ExtractedJob.model_json_schema(), indent=2)
     repair_prompt = (
-        "Fix this JSON so it is valid. Keep the same keys and values. "
-        'Required schema: {"title": string, "company": string, "location": string, '
-        '"description": string, "date_posted": string}\n\n'
+        "Fix this JSON so it is valid. Keep the same keys and values.\n"
+        f"Required schema:\n{schema_str}\n\n"
         f"{broken}"
     )
     model = config.get("fallback_model") or config.get("extraction_model") or config.get("model")
@@ -749,7 +760,7 @@ def _repair_job_json(broken: str, config: Dict[str, Any]) -> Dict | None:
             prompt=repair_prompt,
             system=repair_system,
             config=config,
-            json_mode=True,
+            response_schema=ExtractedJob.model_json_schema(),
             model_override=model,
         )
         return parse_json_response(resp)
@@ -774,7 +785,10 @@ def fetch_job_url(
 
     Returns a canonical job dict or None on failure.
     """
+    from pydantic import ValidationError
+
     from targetfit.ingestion.ats_api import fetch_single_job_via_api
+    from targetfit.models import ExtractedJob, Job
     from targetfit.nlp.llm import (
         _load_agent_section, _extract_system_prompt,
         call_ollama, parse_json_response, LLMError, ParseError,
@@ -809,21 +823,23 @@ def fetch_job_url(
     extraction_model = cfg.get("extraction_model") or cfg.get("model")
     fallback_model = cfg.get("fallback_model")
     user_prompt = f"Extract the job details from this HTML:\n\n{cleaned[:8000]}"
+    extracted_job_schema = ExtractedJob.model_json_schema()
 
     parsed: Any = None
     raw_resp: str = ""
 
-    # Attempt 1: extraction_model with json_mode.
+    # Attempt 1: extraction_model with structured output.
     try:
         raw_resp = call_ollama(
             prompt=user_prompt,
             system=system_prompt,
             config=cfg,
-            json_mode=True,
+            response_schema=extracted_job_schema,
             model_override=extraction_model,
         )
-        parsed = parse_json_response(raw_resp)
-    except (LLMError, ParseError) as exc:
+        raw_parsed = parse_json_response(raw_resp)
+        parsed = ExtractedJob.model_validate(raw_parsed).model_dump()
+    except (LLMError, ParseError, ValidationError) as exc:
         logger.warning("fetch_job_url: primary extraction failed for %s: %s", url, exc)
 
     # Attempt 2: LLM repair on broken JSON.
@@ -839,13 +855,13 @@ def fetch_job_url(
                 prompt=user_prompt,
                 system=system_prompt,
                 config=cfg,
-                json_mode=True,
+                response_schema=extracted_job_schema,
                 model_override=fallback_model,
             )
-            parsed = parse_json_response(raw_resp2)
-            if parsed is not None:
-                logger.info("fetch_job_url: fallback model succeeded for %s", url)
-        except (LLMError, ParseError) as exc:
+            raw_parsed2 = parse_json_response(raw_resp2)
+            parsed = ExtractedJob.model_validate(raw_parsed2).model_dump()
+            logger.info("fetch_job_url: fallback model succeeded for %s", url)
+        except (LLMError, ParseError, ValidationError) as exc:
             logger.warning("fetch_job_url: fallback model failed for %s: %s", url, exc)
 
     # Attempt 4: HTML salvage — use <title> tag as job title.
@@ -874,11 +890,11 @@ def fetch_job_url(
         logger.warning("fetch_job_url: no title extracted for %s", url)
         return None
 
-    return {
-        "company": _resolve_company(parsed.get("company"), company_hint, url),
-        "title": title,
-        "location": parsed.get("location"),
-        "url": url,
-        "description": parsed.get("description"),
-        "date_posted": parsed.get("date_posted"),
-    }
+    return Job(
+        company=_resolve_company(parsed.get("company"), company_hint, url),
+        title=title,
+        location=parsed.get("location"),
+        url=url,
+        description=parsed.get("description"),
+        date_posted=parsed.get("date_posted"),
+    ).model_dump()

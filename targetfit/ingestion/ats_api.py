@@ -17,14 +17,19 @@ from typing import Any, Dict, List
 from urllib.parse import urlparse
 
 import requests
+from pydantic import ValidationError
 
 from targetfit.helpers import truncate
 from targetfit.log import setup_logger
+from targetfit.models import Job
 
 logger = setup_logger(__name__)
 
 # Timeout for all ATS API calls (seconds).
 _TIMEOUT = 30
+
+# Unified description truncation limit (characters).
+_MAX_DESC = 4000
 
 
 # ── ATS detection ────────────────────────────────────────────────────────────
@@ -117,17 +122,20 @@ def _fetch_greenhouse(org: str, company: str, query: str | None = None) -> List[
         job_url = j.get("absolute_url") or j.get("url")
         content = j.get("content") or ""
         # Strip HTML tags for description.
-        description = _strip_html(content)[:1000] if content else None
+        description = _strip_html(content)[:_MAX_DESC] if content else None
         updated = (j.get("updated_at") or "")[:10] or None
 
-        jobs.append({
-            "company": company,
-            "title": title,
-            "location": location,
-            "url": job_url,
-            "description": description,
-            "date_posted": updated,
-        })
+        try:
+            jobs.append(Job(
+                company=company,
+                title=title,
+                location=location,
+                url=job_url,
+                description=description,
+                date_posted=updated,
+            ).model_dump())
+        except ValidationError:
+            continue
 
     return jobs
 
@@ -177,21 +185,24 @@ def _fetch_lever(org: str, company: str, query: str | None = None) -> List[Dict]
         location = cats.get("location") if isinstance(cats, dict) else None
 
         job_url = j.get("hostedUrl") or j.get("applyUrl")
-        description = truncate(j.get("descriptionPlain") or "", 1000) or None
+        description = truncate(j.get("descriptionPlain") or "", _MAX_DESC) or None
         created = j.get("createdAt")
         date_posted = None
         if isinstance(created, int):
             import datetime
             date_posted = datetime.datetime.fromtimestamp(created / 1000).strftime("%Y-%m-%d")
 
-        jobs.append({
-            "company": company,
-            "title": title,
-            "location": location,
-            "url": job_url,
-            "description": description,
-            "date_posted": date_posted,
-        })
+        try:
+            jobs.append(Job(
+                company=company,
+                title=title,
+                location=location,
+                url=job_url,
+                description=description,
+                date_posted=date_posted,
+            ).model_dump())
+        except ValidationError:
+            continue
 
     return jobs
 
@@ -228,14 +239,29 @@ def _fetch_ashby(org: str, company: str, query: str | None = None) -> List[Dict]
         job_url = j.get("jobUrl") or j.get("applyUrl")
         published = (j.get("publishedAt") or "")[:10] or None
 
-        jobs.append({
-            "company": company,
-            "title": title,
-            "location": location,
-            "url": job_url,
-            "description": None,
-            "date_posted": published,
-        })
+        # Try to extract job ID from the Ashby URL for description enrichment.
+        ashby_job_id = j.get("id")
+        if not ashby_job_id and job_url:
+            # URL pattern: jobs.ashbyhq.com/{org}/{job_id}
+            url_parts = job_url.strip("/").split("/")
+            if len(url_parts) >= 2:
+                ashby_job_id = url_parts[-1]
+
+        description = None
+        if ashby_job_id:
+            description = _fetch_ashby_job_description(org, ashby_job_id)
+
+        try:
+            jobs.append(Job(
+                company=company,
+                title=title,
+                location=location,
+                url=job_url,
+                description=description,
+                date_posted=published,
+            ).model_dump())
+        except ValidationError:
+            continue
 
     return jobs
 
@@ -283,14 +309,22 @@ def _fetch_smartrecruiters(org: str, company: str, query: str | None = None) -> 
             job_url = j.get("ref") or j.get("applyUrl")
             created = (j.get("releasedDate") or "")[:10] or None
 
-            all_jobs.append({
-                "company": company,
-                "title": title,
-                "location": location,
-                "url": job_url,
-                "description": None,
-                "date_posted": created,
-            })
+            posting_id = j.get("id")
+            description = None
+            if posting_id:
+                description = _fetch_sr_job_description(org, posting_id)
+
+            try:
+                all_jobs.append(Job(
+                    company=company,
+                    title=title,
+                    location=location,
+                    url=job_url,
+                    description=description,
+                    date_posted=created,
+                ).model_dump())
+            except ValidationError:
+                continue
 
         # Paginate.
         total = data.get("totalFound", 0)
@@ -299,6 +333,54 @@ def _fetch_smartrecruiters(org: str, company: str, query: str | None = None) -> 
             break
 
     return all_jobs
+
+
+# ── Description enrichment helpers ─────────────────────────────────────────
+
+
+def _fetch_ashby_job_description(org: str, job_id: str) -> str | None:
+    """Fetch description for a single Ashby job posting.
+
+    Endpoint: GET https://api.ashbyhq.com/posting-api/job-board/{org}/job/{jobId}
+    """
+    api_url = f"https://api.ashbyhq.com/posting-api/job-board/{org}/job/{job_id}"
+    try:
+        resp = requests.get(api_url, timeout=_TIMEOUT)
+        resp.raise_for_status()
+    except requests.RequestException:
+        return None
+
+    data = resp.json()
+    html = data.get("descriptionHtml") or data.get("description") or ""
+    if not html:
+        return None
+    return _strip_html(html)[:_MAX_DESC] or None
+
+
+def _fetch_sr_job_description(org: str, posting_id: str) -> str | None:
+    """Fetch description for a single SmartRecruiters posting.
+
+    Endpoint: GET https://api.smartrecruiters.com/v1/companies/{org}/postings/{postingId}
+    """
+    api_url = f"https://api.smartrecruiters.com/v1/companies/{org}/postings/{posting_id}"
+    try:
+        resp = requests.get(api_url, timeout=_TIMEOUT)
+        resp.raise_for_status()
+    except requests.RequestException:
+        return None
+
+    data = resp.json()
+    # Navigate jobAd.sections.jobDescription.text
+    job_ad = data.get("jobAd") or {}
+    sections = job_ad.get("sections") or {}
+    job_desc = sections.get("jobDescription") or {}
+    text = job_desc.get("text") or ""
+    if not text:
+        # Fallback: try HTML version
+        html = job_desc.get("html") or ""
+        if html:
+            text = _strip_html(html)
+    return text[:_MAX_DESC] or None
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -366,17 +448,17 @@ def _fetch_greenhouse_single(board: str, job_id: str, company_hint: str | None) 
     location = _greenhouse_location(j)
     job_url = j.get("absolute_url") or j.get("url")
     content = j.get("content") or ""
-    description = _strip_html(content)[:3000] if content else None
+    description = _strip_html(content)[:_MAX_DESC] if content else None
     updated = (j.get("updated_at") or "")[:10] or None
 
-    return {
-        "company": company,
-        "title": title,
-        "location": location,
-        "url": job_url,
-        "description": description,
-        "date_posted": updated,
-    }
+    return Job(
+        company=company,
+        title=title,
+        location=location,
+        url=job_url,
+        description=description,
+        date_posted=updated,
+    ).model_dump()
 
 
 def _fetch_lever_single(org: str, posting_id: str, company_hint: str | None) -> dict | None:
@@ -398,21 +480,21 @@ def _fetch_lever_single(org: str, posting_id: str, company_hint: str | None) -> 
     cats = j.get("categories", {})
     location = cats.get("location") if isinstance(cats, dict) else None
     job_url = j.get("hostedUrl") or j.get("applyUrl")
-    description = truncate(j.get("descriptionPlain") or "", 3000) or None
+    description = truncate(j.get("descriptionPlain") or "", _MAX_DESC) or None
     created = j.get("createdAt")
     date_posted = None
     if isinstance(created, int):
         import datetime
         date_posted = datetime.datetime.fromtimestamp(created / 1000).strftime("%Y-%m-%d")
 
-    return {
-        "company": company,
-        "title": title,
-        "location": location,
-        "url": job_url,
-        "description": description,
-        "date_posted": date_posted,
-    }
+    return Job(
+        company=company,
+        title=title,
+        location=location,
+        url=job_url,
+        description=description,
+        date_posted=date_posted,
+    ).model_dump()
 
 
 def fetch_single_job_via_api(url: str, company_hint: str | None) -> dict | None:

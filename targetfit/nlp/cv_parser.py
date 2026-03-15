@@ -6,46 +6,15 @@ search URLs that hit actual results pages instead of landing pages.
 
 from __future__ import annotations
 
-import json
 import re
-from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 from targetfit.log import setup_logger
+from targetfit.models import SearchTerms
 from targetfit.nlp.llm import LLMError, ParseError, call_ollama, parse_json_response
 
 
 logger = setup_logger(__name__)
-
-
-@dataclass
-class SearchTerms:
-    """Structured search profile extracted from a CV."""
-
-    # 2-4 job title / role keywords the candidate is targeting.
-    job_titles: List[str] = field(default_factory=list)
-
-    # Technical/scientific domains (e.g. "drug discovery", "bioinformatics").
-    domains: List[str] = field(default_factory=list)
-
-    # Key technical skills worth searching for (e.g. "PyTorch", "RDKit").
-    skills: List[str] = field(default_factory=list)
-
-    # Ready-to-use query strings, ordered best-first.
-    # url_builder uses these when constructing search URLs.
-    queries: List[str] = field(default_factory=list)
-
-    def best_query(self) -> str:
-        """Return the single best search query, or a fallback."""
-        return self.queries[0] if self.queries else (self.job_titles[0] if self.job_titles else "")
-
-    def as_dict(self) -> Dict[str, Any]:
-        return {
-            "job_titles": self.job_titles,
-            "domains": self.domains,
-            "skills": self.skills,
-            "queries": self.queries,
-        }
 
 
 # ── Fallback in case the LLM is unavailable ─────────────────────────────────
@@ -109,7 +78,7 @@ def extract_search_terms(cv_text: str, config: Dict[str, Any]) -> SearchTerms:
 
     # Guarantee at least one query even if the LLM returned empty lists.
     if not terms.queries and terms.job_titles:
-        terms.queries = terms.job_titles[:3]
+        terms = terms.model_copy(update={"queries": list(terms.job_titles[:3])})
     if not terms.queries:
         return _DEFAULT_TERMS
 
@@ -127,7 +96,7 @@ def _call_and_parse_search_terms(user_prompt: str, config: Dict[str, Any]) -> Di
         prompt=user_prompt,
         system=_SYSTEM_PROMPT,
         config=config,
-        json_mode=True,
+        response_schema=SearchTerms.model_json_schema(),
     )
 
     try:
@@ -146,7 +115,7 @@ def _call_and_parse_search_terms(user_prompt: str, config: Dict[str, Any]) -> Di
                 prompt=user_prompt,
                 system=_SYSTEM_PROMPT,
                 config=config,
-                json_mode=True,
+                response_schema=SearchTerms.model_json_schema(),
                 model_override=fallback_model,
             )
             try:

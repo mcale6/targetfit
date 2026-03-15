@@ -105,13 +105,22 @@ def format_results(jobs: List[Dict[str, Any]]) -> str:
     table.add_column("Role", min_width=24)
     table.add_column("Location", style="dim", min_width=14, max_width=18)
     table.add_column("Score", min_width=18)
+    table.add_column("Link", min_width=20, no_wrap=True)
 
     for idx, job in enumerate(jobs, start=1):
         company  = job.get("company") or "—"
         title    = job.get("title")   or "—"
         location = job.get("location") or "—"
         score    = float(job.get("final_score") or job.get("vector_score") or 0.0)
-        table.add_row(str(idx), company, title, location, _score_bar(score))
+        url      = job.get("url")
+
+        if url:
+            link_text = Text()
+            link_text.append(url, style=f"link {url} cyan")
+        else:
+            link_text = Text("—", style="dim")
+
+        table.add_row(str(idx), company, title, location, _score_bar(score), link_text)
 
         reasons = job.get("match_reasons") or []
         gaps    = job.get("gaps")          or []
@@ -126,7 +135,7 @@ def format_results(jobs: List[Dict[str, Any]]) -> str:
             for g in gaps:
                 detail.append("  ✗ ", style="red")
                 detail.append(g + "\n", style="dim")
-            table.add_row("", "", detail, "", "", end_section=True)
+            table.add_row("", "", detail, "", "", "", end_section=True)
 
     _console.print(table)
     return ""

@@ -22,6 +22,15 @@ from targetfit.log import setup_logger
 
 logger = setup_logger(__name__)
 
+# Asymmetric retrieval prefixes for embedding models that distinguish
+# queries from documents (e.g. snowflake-arctic-embed2).
+_EMBEDDING_PREFIXES = {
+    "snowflake-arctic-embed2": {
+        "query": "Represent this query for retrieving relevant documents: ",
+        "document": "Represent this document for retrieval: ",
+    },
+}
+
 
 class LLMError(Exception):
     """Raised when an LLM call fails."""
@@ -74,10 +83,13 @@ def call_ollama(
     *,
     json_mode: bool = False,
     model_override: str | None = None,
+    response_schema: dict | None = None,
 ) -> str:
     """Call Ollama /api/generate and return the raw text response.
 
-    When json_mode=True, requests strict JSON output via Ollama's format parameter.
+    When *response_schema* is provided, it is passed as the ``format``
+    parameter so Ollama enforces that JSON schema natively.
+    When json_mode=True (and no schema), requests generic JSON output.
     """
     base = config.get("ollama_url", "http://localhost:11434").rstrip("/")
     # Prefer a dedicated scoring model if configured, otherwise fall back to legacy 'model'.
@@ -101,7 +113,9 @@ def call_ollama(
         "system": system,
         "stream": False,
     }
-    if json_mode:
+    if response_schema:
+        payload["format"] = response_schema
+    elif json_mode:
         payload["format"] = "json"
     try:
         resp = requests.post(url, json=payload, timeout=120)
@@ -118,8 +132,13 @@ def call_ollama(
     return text
 
 
-def get_embedding(text: str, config: Dict[str, Any]) -> List[float]:
-    """Call Ollama /api/embeddings and return embedding vector."""
+def get_embedding(text: str, config: Dict[str, Any], *, mode: str = "document") -> List[float]:
+    """Call Ollama /api/embeddings and return embedding vector.
+
+    Args:
+        mode: ``"document"`` for texts being stored, ``"query"`` for search queries.
+              Used to prepend asymmetric retrieval prefixes for models that need them.
+    """
     base = config.get("ollama_url", "http://localhost:11434").rstrip("/")
     model = config.get("embedding_model")
     dims = int(config.get("embedding_dims", 768))
@@ -130,6 +149,12 @@ def get_embedding(text: str, config: Dict[str, Any]) -> List[float]:
     text = truncate(text or "", max_chars)
     if not text.strip():
         return [0.0] * dims
+
+    # Prepend asymmetric prefix if the model requires it.
+    model_key = re.sub(r":.*$", "", model)  # strip tag like ":latest"
+    prefixes = _EMBEDDING_PREFIXES.get(model_key)
+    if prefixes and mode in prefixes:
+        text = prefixes[mode] + text
 
     url = f"{base}/api/embeddings"
     logger.debug(
@@ -265,6 +290,16 @@ def parse_json_response(text: str) -> Any:
     raise ParseError("Failed to parse JSON from LLM response.")
 
 
+def validate_with_model(text: str, model_class: type) -> Any:
+    """Parse JSON from LLM text and validate with a Pydantic model.
+
+    Returns the validated model instance.
+    Raises ParseError or pydantic.ValidationError on failure.
+    """
+    parsed = parse_json_response(text)
+    return model_class.model_validate(parsed)
+
+
 _STRIP_CHARS = " -\n\t\r\"'[]" + chr(0x201C) + chr(0x201D)
 
 
@@ -329,13 +364,16 @@ def _salvage_score_payload(text: str) -> Dict[str, Any] | None:
 
 def _repair_json_with_llm(broken: str, config: Dict[str, Any]) -> Dict[str, Any] | None:
     """Ask a small model to fix broken JSON output from the scorer."""
+    from targetfit.models import ScoreResult
+
     repair_system = (
         "You are a JSON repair tool. The user will give you broken or malformed JSON. "
         "Return ONLY the corrected JSON object — no explanation, no markdown fences."
     )
+    schema_str = json.dumps(ScoreResult.model_json_schema(), indent=2)
     repair_prompt = (
-        "Fix this JSON so it is valid. Keep the same keys and values. "
-        'Required schema: {"score": float, "match_reasons": [str], "gaps": [str], "summary": str}\n\n'
+        "Fix this JSON so it is valid. Keep the same keys and values.\n"
+        f"Required schema:\n{schema_str}\n\n"
         f"{broken}"
     )
     fallback_model = config.get("fallback_model")
@@ -345,7 +383,7 @@ def _repair_json_with_llm(broken: str, config: Dict[str, Any]) -> Dict[str, Any]
             prompt=repair_prompt,
             system=repair_system,
             config=config,
-            json_mode=True,
+            response_schema=ScoreResult.model_json_schema(),
             model_override=model,
         )
         return parse_json_response(resp)
@@ -355,6 +393,10 @@ def _repair_json_with_llm(broken: str, config: Dict[str, Any]) -> Dict[str, Any]
 
 def score_job(job: Dict[str, Any], cv: str, config: Dict[str, Any]) -> Dict[str, Any]:
     """Score a single job against the CV using the SCORER agent."""
+    from pydantic import ValidationError
+
+    from targetfit.models import ScoreResult
+
     try:
         section = _load_agent_section("SCORER")
         system_prompt = _extract_system_prompt(section)
@@ -374,28 +416,35 @@ def score_job(job: Dict[str, Any], cv: str, config: Dict[str, Any]) -> Dict[str,
         f"---\n\nCANDIDATE CV:\n{cv}"
     )
 
+    score_schema = ScoreResult.model_json_schema()
     parsed: Any = None
     raw_resp: str = ""
     fallback_model = config.get("fallback_model")
     primary_model = config.get("scoring_model") or config.get("model")
 
-    # Attempt 1: primary model with json_mode.
+    # Attempt 1: primary model with structured output.
     try:
         raw_resp = call_ollama(
             prompt=user_prompt,
             system=system_prompt,
             config=config,
-            json_mode=True,
+            response_schema=score_schema,
+            model_override=primary_model,
         )
-        parsed = parse_json_response(raw_resp)
-    except (LLMError, ParseError) as exc:
+        raw_parsed = parse_json_response(raw_resp)
+        parsed = ScoreResult.model_validate(raw_parsed).model_dump()
+    except (LLMError, ParseError, ValidationError) as exc:
         logger.warning("score_job: primary model parse failed for %s: %s", job.get("title"), exc)
 
     # Attempt 2: if response was non-empty prose/broken JSON, try LLM repair.
     if parsed is None and raw_resp and raw_resp.strip():
-        parsed = _repair_json_with_llm(raw_resp, config)
-        if parsed is not None:
-            logger.info("score_job: JSON repair succeeded for %s", job.get("title"))
+        repaired = _repair_json_with_llm(raw_resp, config)
+        if repaired is not None:
+            try:
+                parsed = ScoreResult.model_validate(repaired).model_dump()
+                logger.info("score_job: JSON repair succeeded for %s", job.get("title"))
+            except ValidationError:
+                pass
 
     # Attempt 3: if response was empty/useless, retry with fallback model directly.
     if parsed is None and fallback_model and fallback_model != primary_model:
@@ -404,22 +453,32 @@ def score_job(job: Dict[str, Any], cv: str, config: Dict[str, Any]) -> Dict[str,
                 prompt=user_prompt,
                 system=system_prompt,
                 config=config,
-                json_mode=True,
+                response_schema=score_schema,
                 model_override=fallback_model,
             )
-            parsed = parse_json_response(raw_resp2)
-            if parsed is not None:
-                logger.info("score_job: fallback model succeeded for %s", job.get("title"))
-        except (LLMError, ParseError) as exc:
+            raw_parsed2 = parse_json_response(raw_resp2)
+            parsed = ScoreResult.model_validate(raw_parsed2).model_dump()
+            logger.info("score_job: fallback model succeeded for %s", job.get("title"))
+        except (LLMError, ParseError, ValidationError) as exc:
             logger.warning("score_job: fallback model failed for %s: %s", job.get("title"), exc)
             # Try salvage from whichever response had content.
-            parsed = _salvage_score_payload(raw_resp2 if raw_resp2.strip() else raw_resp)
+            salvaged = _salvage_score_payload(raw_resp2 if raw_resp2.strip() else raw_resp)
+            if salvaged is not None:
+                try:
+                    parsed = ScoreResult.model_validate(salvaged).model_dump()
+                except ValidationError:
+                    parsed = salvaged if "score" in salvaged else None
 
     # Attempt 4: regex salvage from raw response.
     if parsed is None and raw_resp:
-        parsed = _salvage_score_payload(raw_resp)
-        if parsed is not None:
-            logger.info("score_job: regex salvage recovered score for %s", job.get("title"))
+        salvaged = _salvage_score_payload(raw_resp)
+        if salvaged is not None:
+            try:
+                parsed = ScoreResult.model_validate(salvaged).model_dump()
+            except ValidationError:
+                parsed = salvaged if "score" in salvaged else None
+            if parsed is not None:
+                logger.info("score_job: regex salvage recovered score for %s", job.get("title"))
 
     # Build enriched result.
     enriched = dict(job)
